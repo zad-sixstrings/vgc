@@ -28,6 +28,7 @@ func dbconnect() {
 		os.Getenv("DB_NAME"),
 	)
 
+	// connect to database
 	conn, err := pgx.Connect(context.Background(), connStr)
 	if err != nil {
 		log.Fatal("Unable to connect to database:", err)
