@@ -16,6 +16,12 @@ func dbconnect() (*pgx.Conn, error) {
 		return nil, fmt.Errorf("error loading .env file: %w", err)
 	}
 
+	fmt.Println("DEBUG - DB_USER:", os.Getenv("DB_USER"))
+	fmt.Println("DEBUG - DB_PASSWORD:", os.Getenv("DB_PASSWORD"))
+	fmt.Println("DEBUG - DB_HOST:", os.Getenv("DB_HOST"))
+	fmt.Println("DEBUG - DB_PORT:", os.Getenv("DB_PORT"))
+	fmt.Println("DEBUG - DB_NAME:", os.Getenv("DB_NAME"))
+
 	// Make connection string from .env
 	connStr := fmt.Sprintf(
 		"postgresql://%s:%s@%s:%s/%s",
@@ -25,6 +31,8 @@ func dbconnect() (*pgx.Conn, error) {
 		os.Getenv("DB_PORT"),
 		os.Getenv("DB_NAME"),
 	)
+
+	fmt.Println("DEBUG - Connection string:", connStr)
 
 	// Connect to database
 	conn, err := pgx.Connect(context.Background(), connStr)

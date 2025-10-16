@@ -8,8 +8,33 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// Create and configures the games table
-func buildGamesTable(games []Game) *widget.Table {
+// createActionButtons creates the Add/Edit/Delete button toolbar
+func createActionButtons(editBtn, deleteBtn *widget.Button) fyne.CanvasObject {
+	addBtn := widget.NewButton("Add", func() {
+		fmt.Println("Add clicked")
+		// TODO: Open add dialog
+	})
+
+	// Style buttons with colors
+	addBtn.Importance = widget.SuccessImportance   // Green
+	editBtn.Importance = widget.WarningImportance  // Yellow/Orange
+	deleteBtn.Importance = widget.DangerImportance // Red
+
+	// Start with Edit and Delete disabled
+	editBtn.Disable()
+	deleteBtn.Disable()
+
+	return container.NewHBox(
+		addBtn,
+		editBtn,
+		deleteBtn,
+	)
+}
+
+// buildGamesTable creates and configures the games table
+func buildGamesTable(games []Game, editBtn, deleteBtn *widget.Button) *widget.Table {
+	var selectedGameID int = -1 // Track selected game
+
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
 			return len(games), 4
@@ -41,6 +66,23 @@ func buildGamesTable(games []Game) *widget.Table {
 		label.SetText(headers[id.Col])
 	}
 
+	// Handle row selection
+	table.OnSelected = func(id widget.TableCellID) {
+		selectedGameID = games[id.Row].GameID
+		fmt.Printf("Selected game: %s (ID: %d)\n", games[id.Row].Title, selectedGameID)
+
+		// Enable Edit and Delete buttons
+		editBtn.Enable()
+		deleteBtn.Enable()
+	}
+
+	// Handle deselection (clicking same row or elsewhere)
+	table.OnUnselected = func(id widget.TableCellID) {
+		selectedGameID = -1
+		editBtn.Disable()
+		deleteBtn.Disable()
+	}
+
 	// Column widths
 	table.SetColumnWidth(0, 50)
 	table.SetColumnWidth(1, 400)
@@ -52,8 +94,10 @@ func buildGamesTable(games []Game) *widget.Table {
 	return table
 }
 
-// Create and configures the consoles table
-func buildConsolesTable(consoles []Console) *widget.Table {
+// buildConsolesTable creates and configures the consoles table
+func buildConsolesTable(consoles []Console, editBtn, deleteBtn *widget.Button) *widget.Table {
+	var selectedConsoleID int = -1 // Track selected console
+
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
 			return len(consoles), 4
@@ -85,7 +129,24 @@ func buildConsolesTable(consoles []Console) *widget.Table {
 		label.SetText(headers[id.Col])
 	}
 
-	// Column widths
+	// Handle row selection
+	table.OnSelected = func(id widget.TableCellID) {
+		selectedConsoleID = consoles[id.Row].ConsoleID
+		fmt.Printf("Selected console: %s (ID: %d)\n", consoles[id.Row].Name, selectedConsoleID)
+
+		// Enable Edit and Delete buttons
+		editBtn.Enable()
+		deleteBtn.Enable()
+	}
+
+	// Handle deselection
+	table.OnUnselected = func(id widget.TableCellID) {
+		selectedConsoleID = -1
+		editBtn.Disable()
+		deleteBtn.Disable()
+	}
+
+	// Set column widths
 	table.SetColumnWidth(0, 50)
 	table.SetColumnWidth(1, 300)
 	table.SetColumnWidth(2, 300)
@@ -96,22 +157,52 @@ func buildConsolesTable(consoles []Console) *widget.Table {
 	return table
 }
 
-// Create the games tab content
+// buildJeuxTab creates the complete "Jeux" tab content
 func buildJeuxTab(games []Game) fyne.CanvasObject {
-	table := buildGamesTable(games)
+	// Create Edit and Delete buttons (to be managed by table selection)
+	editBtn := widget.NewButton("Edit", func() {
+		fmt.Println("Edit game clicked")
+		// TODO: Open edit dialog with selected game
+	})
+
+	deleteBtn := widget.NewButton("Delete", func() {
+		fmt.Println("Delete game clicked")
+		// TODO: Show confirmation dialog and delete
+	})
+
+	actionButtons := createActionButtons(editBtn, deleteBtn)
+	table := buildGamesTable(games, editBtn, deleteBtn)
+
 	return container.NewBorder(
-		widget.NewLabel("Jeux"),
-		nil, nil, nil,
-		table,
+		actionButtons, // top - buttons in top right
+		nil,           // bottom
+		nil,           // left
+		nil,           // right
+		table,         // center - table fills remaining space
 	)
 }
 
-// Create the consoles tab content
+// buildConsolesTab creates the complete "Consoles" tab content
 func buildConsolesTab(consoles []Console) fyne.CanvasObject {
-	table := buildConsolesTable(consoles)
+	// Create Edit and Delete buttons (to be managed by table selection)
+	editBtn := widget.NewButton("Edit", func() {
+		fmt.Println("Edit console clicked")
+		// TODO: Open edit dialog with selected console
+	})
+
+	deleteBtn := widget.NewButton("Delete", func() {
+		fmt.Println("Delete console clicked")
+		// TODO: Show confirmation dialog and delete
+	})
+
+	actionButtons := createActionButtons(editBtn, deleteBtn)
+	table := buildConsolesTable(consoles, editBtn, deleteBtn)
+
 	return container.NewBorder(
-		widget.NewLabel("Consoles"),
-		nil, nil, nil,
-		table,
+		actionButtons, // top - buttons
+		nil,           // bottom
+		nil,           // left
+		nil,           // right
+		table,         // center
 	)
 }
