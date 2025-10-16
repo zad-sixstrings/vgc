@@ -37,7 +37,12 @@ func dbconnect() (*pgx.Conn, error) {
 }
 
 // ========== Games Functions ==========
+// NOTE: Games has two query types:
+// 1. getGames() - Fast, minimal data for displaying in tables (list view)
+// 2. getGameByID() - Complete data with all relationships for editing (detail view)
+// This separation optimizes performance: list queries are fast, detail queries are thorough.
 
+// getGames fetches minimal game data for table display (fast, lightweight)
 func getGames(conn *pgx.Conn) ([]Game, error) {
 	query := `
 		SELECT 
@@ -76,8 +81,113 @@ func getGames(conn *pgx.Conn) ([]Game, error) {
 	return games, nil
 }
 
-// ========== Consoles Functions ==========
+// getGameByID fetches complete game data with all relationships for editing (thorough)
+func getGameByID(conn *pgx.Conn, gameID int) (*Game, error) {
+	// Fetch main game data
+	query := `
+		SELECT 
+			g.game_id, g.title, g.console_id, g.genre_id,
+			g.jp_release_date, g.us_release_date, g.eu_release_date,
+			g.jp_rating_id, g.us_rating_id, g.eu_rating_id,
+			g.units_sold, g.owned, g.box_owned, g.collector, g.condition,
+			g.purchase_date, g.purchase_price, g.notes,
+			COALESCE(c.name, '') as console_name,
+			COALESCE(ge.name, '') as genre_name
+		FROM games g
+		LEFT JOIN consoles c ON g.console_id = c.console_id
+		LEFT JOIN genres ge ON g.genre_id = ge.genre_id
+		WHERE g.game_id = $1
+	`
 
+	var game Game
+	err := conn.QueryRow(context.Background(), query, gameID).Scan(
+		&game.GameID, &game.Title, &game.ConsoleID, &game.GenreID,
+		&game.JPReleaseDate, &game.USReleaseDate, &game.EUReleaseDate,
+		&game.JPRatingID, &game.USRatingID, &game.EURatingID,
+		&game.UnitsSold, &game.Owned, &game.BoxOwned, &game.Collector, &game.Condition,
+		&game.PurchaseDate, &game.PurchasePrice, &game.Notes,
+		&game.ConsoleName, &game.GenreName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch many-to-many relationships
+
+	// Developers
+	devRows, _ := conn.Query(context.Background(), `
+		SELECT d.name, d.developer_id
+		FROM game_developers gd
+		JOIN developers d ON gd.developer_id = d.developer_id
+		WHERE gd.game_id = $1
+	`, gameID)
+	defer devRows.Close()
+
+	for devRows.Next() {
+		var name string
+		var id int
+		devRows.Scan(&name, &id)
+		game.Developers = append(game.Developers, name)
+	}
+
+	// Composers
+	compRows, _ := conn.Query(context.Background(), `
+		SELECT c.name
+		FROM game_composers gc
+		JOIN composers c ON gc.composer_id = c.composer_id
+		WHERE gc.game_id = $1
+	`, gameID)
+	defer compRows.Close()
+
+	for compRows.Next() {
+		var name string
+		compRows.Scan(&name)
+		game.Composers = append(game.Composers, name)
+	}
+
+	// Publishers
+	pubRows, _ := conn.Query(context.Background(), `
+		SELECT p.name
+		FROM game_publishers gp
+		JOIN publishers p ON gp.publisher_id = p.publisher_id
+		WHERE gp.game_id = $1
+	`, gameID)
+	defer pubRows.Close()
+
+	for pubRows.Next() {
+		var name string
+		pubRows.Scan(&name)
+		game.Publishers = append(game.Publishers, name)
+	}
+
+	// Producers
+	prodRows, _ := conn.Query(context.Background(), `
+		SELECT p.name
+		FROM game_producers gpr
+		JOIN producers p ON gpr.producer_id = p.producer_id
+		WHERE gpr.game_id = $1
+	`, gameID)
+	defer prodRows.Close()
+
+	for prodRows.Next() {
+		var name string
+		prodRows.Scan(&name)
+		game.Producers = append(game.Producers, name)
+	}
+
+	return &game, nil
+}
+
+// deleteGame deletes a game and all its relationships (cascades to junction tables)
+func deleteGame(conn *pgx.Conn, gameID int) error {
+	_, err := conn.Exec(context.Background(), "DELETE FROM games WHERE game_id = $1", gameID)
+	return err
+}
+
+// ========== Consoles Functions ==========
+// NOTE: Same pattern as Games - separate list vs detail queries for performance
+
+// getConsoles fetches minimal console data for table display (fast, lightweight)
 func getConsoles(conn *pgx.Conn) ([]Console, error) {
 	query := `
 		SELECT 
@@ -119,7 +229,149 @@ func getConsoles(conn *pgx.Conn) ([]Console, error) {
 	return consoles, nil
 }
 
-// ========== Lookup Tables Functions (for dropdowns) ==========
+// getConsoleByID fetches complete console data for editing (thorough)
+func getConsoleByID(conn *pgx.Conn, consoleID int) (*Console, error) {
+	query := `
+		SELECT 
+			c.console_id, c.name, c.generation, c.type_id, c.manufacturer_id,
+			c.jp_release_date, c.us_release_date, c.eu_release_date, c.discontinued,
+			c.price_jpy, c.price_usd, c.controllers, c.cpu, c.gpu, c.memory, c.audio,
+			c.units_sold, c.top_game, c.predecessor, c.successor,
+			c.owned, c.condition, c.notes,
+			COALESCE(m.name, '') as manufacturer_name,
+			COALESCE(ct.name, '') as type_name
+		FROM consoles c
+		LEFT JOIN manufacturers m ON c.manufacturer_id = m.manufacturer_id
+		LEFT JOIN console_types ct ON c.type_id = ct.type_id
+		WHERE c.console_id = $1
+	`
+
+	var console Console
+	err := conn.QueryRow(context.Background(), query, consoleID).Scan(
+		&console.ConsoleID, &console.Name, &console.Generation, &console.TypeID, &console.ManufacturerID,
+		&console.JPReleaseDate, &console.USReleaseDate, &console.EUReleaseDate, &console.Discontinued,
+		&console.PriceJPY, &console.PriceUSD, &console.Controllers, &console.CPU, &console.GPU, &console.Memory, &console.Audio,
+		&console.UnitsSold, &console.TopGame, &console.Predecessor, &console.Successor,
+		&console.Owned, &console.Condition, &console.Notes,
+		&console.ManufacturerName, &console.TypeName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &console, nil
+}
+
+// deleteConsole deletes a console (will fail if games reference it due to foreign key constraints)
+func deleteConsole(conn *pgx.Conn, consoleID int) error {
+	_, err := conn.Exec(context.Background(), "DELETE FROM consoles WHERE console_id = $1", consoleID)
+	return err
+}
+
+// ========== Accessories Functions ==========
+// NOTE: Same pattern - separate list vs detail queries for performance
+
+// getAccessories fetches minimal accessory data for table display (fast, lightweight)
+func getAccessories(conn *pgx.Conn) ([]Accessory, error) {
+	query := `
+		SELECT 
+			a.accessory_id,
+			a.name,
+			COALESCE(a.color, '') as color,
+			COALESCE(m.name, '') as manufacturer_name,
+			COALESCE(at.name, '') as type_name,
+			COALESCE(a.quantity, 1) as quantity,
+			a.condition
+		FROM accessories a
+		LEFT JOIN manufacturers m ON a.manufacturer_id = m.manufacturer_id
+		LEFT JOIN accessory_types at ON a.type_id = at.type_id
+		ORDER BY a.name
+	`
+
+	rows, err := conn.Query(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accessories []Accessory
+	for rows.Next() {
+		var a Accessory
+		var color string
+		err := rows.Scan(
+			&a.AccessoryID,
+			&a.Name,
+			&color,
+			&a.ManufacturerName,
+			&a.TypeName,
+			&a.Quantity,
+			&a.Condition,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if color != "" {
+			a.Color = &color
+		}
+		accessories = append(accessories, a)
+	}
+	return accessories, nil
+}
+
+// getAccessoryByID fetches complete accessory data with console relationships for editing (thorough)
+func getAccessoryByID(conn *pgx.Conn, accessoryID int) (*Accessory, error) {
+	query := `
+		SELECT 
+			a.accessory_id, a.name, a.color, a.type_id, a.manufacturer_id,
+			a.condition, a.owned, a.purchase_date, a.purchase_price,
+			a.quantity, a.notes,
+			COALESCE(m.name, '') as manufacturer_name,
+			COALESCE(at.name, '') as type_name
+		FROM accessories a
+		LEFT JOIN manufacturers m ON a.manufacturer_id = m.manufacturer_id
+		LEFT JOIN accessory_types at ON a.type_id = at.type_id
+		WHERE a.accessory_id = $1
+	`
+
+	var accessory Accessory
+	err := conn.QueryRow(context.Background(), query, accessoryID).Scan(
+		&accessory.AccessoryID, &accessory.Name, &accessory.Color,
+		&accessory.TypeID, &accessory.ManufacturerID,
+		&accessory.Condition, &accessory.Owned, &accessory.PurchaseDate,
+		&accessory.PurchasePrice, &accessory.Quantity, &accessory.Notes,
+		&accessory.ManufacturerName, &accessory.TypeName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch associated consoles (many-to-many relationship)
+	consoleRows, _ := conn.Query(context.Background(), `
+		SELECT c.name
+		FROM accessory_consoles ac
+		JOIN consoles c ON ac.console_id = c.console_id
+		WHERE ac.accessory_id = $1
+	`, accessoryID)
+	defer consoleRows.Close()
+
+	for consoleRows.Next() {
+		var consoleName string
+		consoleRows.Scan(&consoleName)
+		accessory.Consoles = append(accessory.Consoles, consoleName)
+	}
+
+	return &accessory, nil
+}
+
+// deleteAccessory deletes an accessory and its console relationships (cascades to junction table)
+func deleteAccessory(conn *pgx.Conn, accessoryID int) error {
+	conn.Exec(context.Background(), "DELETE FROM accessory_consoles WHERE accessory_id = $1", accessoryID)
+	_, err := conn.Exec(context.Background(), "DELETE FROM accessories WHERE accessory_id = $1", accessoryID)
+	return err
+}
+
+// ========== Lookup Tables Functions ==========
+// These are simple reference data used in dropdowns - no detail queries needed
 
 func getGenres(conn *pgx.Conn) ([]Genre, error) {
 	rows, err := conn.Query(context.Background(), "SELECT genre_id, name FROM genres ORDER BY name")
@@ -254,225 +506,6 @@ func getConsoleTypes(conn *pgx.Conn) ([]ConsoleType, error) {
 	return types, nil
 }
 
-func getRatingSystems(conn *pgx.Conn) ([]RatingSystem, error) {
-	rows, err := conn.Query(context.Background(), "SELECT rating_id, region, code, description FROM rating_systems ORDER BY region, code")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var ratings []RatingSystem
-	for rows.Next() {
-		var r RatingSystem
-		err := rows.Scan(&r.RatingID, &r.Region, &r.Code, &r.Description)
-		if err != nil {
-			return nil, err
-		}
-		ratings = append(ratings, r)
-	}
-	return ratings, nil
-}
-
-// getGameByID fetches a complete game record with all relationships
-func getGameByID(conn *pgx.Conn, gameID int) (*Game, error) {
-	// Fetch main game data
-	query := `
-		SELECT 
-			g.game_id, g.title, g.console_id, g.genre_id,
-			g.jp_release_date, g.us_release_date, g.eu_release_date,
-			g.jp_rating_id, g.us_rating_id, g.eu_rating_id,
-			g.units_sold, g.owned, g.box_owned, g.collector, g.condition,
-			g.purchase_date, g.purchase_price, g.notes,
-			COALESCE(c.name, '') as console_name,
-			COALESCE(ge.name, '') as genre_name
-		FROM games g
-		LEFT JOIN consoles c ON g.console_id = c.console_id
-		LEFT JOIN genres ge ON g.genre_id = ge.genre_id
-		WHERE g.game_id = $1
-	`
-
-	var game Game
-	err := conn.QueryRow(context.Background(), query, gameID).Scan(
-		&game.GameID, &game.Title, &game.ConsoleID, &game.GenreID,
-		&game.JPReleaseDate, &game.USReleaseDate, &game.EUReleaseDate,
-		&game.JPRatingID, &game.USRatingID, &game.EURatingID,
-		&game.UnitsSold, &game.Owned, &game.BoxOwned, &game.Collector, &game.Condition,
-		&game.PurchaseDate, &game.PurchasePrice, &game.Notes,
-		&game.ConsoleName, &game.GenreName,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch developers
-	devRows, _ := conn.Query(context.Background(), `
-		SELECT d.name, d.developer_id
-		FROM game_developers gd
-		JOIN developers d ON gd.developer_id = d.developer_id
-		WHERE gd.game_id = $1
-	`, gameID)
-	defer devRows.Close()
-
-	for devRows.Next() {
-		var name string
-		var id int
-		devRows.Scan(&name, &id)
-		game.Developers = append(game.Developers, name)
-	}
-
-	// Fetch composers
-	compRows, _ := conn.Query(context.Background(), `
-		SELECT c.name
-		FROM game_composers gc
-		JOIN composers c ON gc.composer_id = c.composer_id
-		WHERE gc.game_id = $1
-	`, gameID)
-	defer compRows.Close()
-
-	for compRows.Next() {
-		var name string
-		compRows.Scan(&name)
-		game.Composers = append(game.Composers, name)
-	}
-
-	// Fetch publishers
-	pubRows, _ := conn.Query(context.Background(), `
-		SELECT p.name
-		FROM game_publishers gp
-		JOIN publishers p ON gp.publisher_id = p.publisher_id
-		WHERE gp.game_id = $1
-	`, gameID)
-	defer pubRows.Close()
-
-	for pubRows.Next() {
-		var name string
-		pubRows.Scan(&name)
-		game.Publishers = append(game.Publishers, name)
-	}
-
-	// Fetch producers
-	prodRows, _ := conn.Query(context.Background(), `
-		SELECT p.name
-		FROM game_producers gpr
-		JOIN producers p ON gpr.producer_id = p.producer_id
-		WHERE gpr.game_id = $1
-	`, gameID)
-	defer prodRows.Close()
-
-	for prodRows.Next() {
-		var name string
-		prodRows.Scan(&name)
-		game.Producers = append(game.Producers, name)
-	}
-
-	return &game, nil
-}
-
-// deleteGame deletes a game and all its relationships
-func deleteGame(conn *pgx.Conn, gameID int) error {
-	// Foreign key constraints will cascade delete join table entries
-	_, err := conn.Exec(context.Background(), "DELETE FROM games WHERE game_id = $1", gameID)
-	return err
-}
-
-// ========== Accessories Functions ==========
-
-func getAccessories(conn *pgx.Conn) ([]Accessory, error) {
-	query := `
-		SELECT 
-			a.accessory_id,
-			a.name,
-			COALESCE(a.color, '') as color,
-			COALESCE(m.name, '') as manufacturer_name,
-			COALESCE(at.name, '') as type_name,
-			COALESCE(a.quantity, 1) as quantity,
-			a.condition
-		FROM accessories a
-		LEFT JOIN manufacturers m ON a.manufacturer_id = m.manufacturer_id
-		LEFT JOIN accessory_types at ON a.type_id = at.type_id
-		ORDER BY a.name
-	`
-
-	rows, err := conn.Query(context.Background(), query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var accessories []Accessory
-	for rows.Next() {
-		var a Accessory
-		var color string
-		err := rows.Scan(
-			&a.AccessoryID,
-			&a.Name,
-			&color,
-			&a.ManufacturerName,
-			&a.TypeName,
-			&a.Quantity,
-			&a.Condition,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if color != "" {
-			a.Color = &color
-		}
-		accessories = append(accessories, a)
-	}
-	return accessories, nil
-}
-
-func getAccessoryByID(conn *pgx.Conn, accessoryID int) (*Accessory, error) {
-	query := `
-		SELECT 
-			a.accessory_id, a.name, a.color, a.type_id, a.manufacturer_id,
-			a.condition, a.owned, a.purchase_date, a.purchase_price,
-			a.quantity, a.notes,
-			COALESCE(m.name, '') as manufacturer_name,
-			COALESCE(at.name, '') as type_name
-		FROM accessories a
-		LEFT JOIN manufacturers m ON a.manufacturer_id = m.manufacturer_id
-		LEFT JOIN accessory_types at ON a.type_id = at.type_id
-		WHERE a.accessory_id = $1
-	`
-
-	var accessory Accessory
-	err := conn.QueryRow(context.Background(), query, accessoryID).Scan(
-		&accessory.AccessoryID, &accessory.Name, &accessory.Color,
-		&accessory.TypeID, &accessory.ManufacturerID,
-		&accessory.Condition, &accessory.Owned, &accessory.PurchaseDate,
-		&accessory.PurchasePrice, &accessory.Quantity, &accessory.Notes,
-		&accessory.ManufacturerName, &accessory.TypeName,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch associated consoles
-	consoleRows, _ := conn.Query(context.Background(), `
-		SELECT c.name
-		FROM accessory_consoles ac
-		JOIN consoles c ON ac.console_id = c.console_id
-		WHERE ac.accessory_id = $1
-	`, accessoryID)
-	defer consoleRows.Close()
-
-	for consoleRows.Next() {
-		var consoleName string
-		consoleRows.Scan(&consoleName)
-		accessory.Consoles = append(accessory.Consoles, consoleName)
-	}
-
-	return &accessory, nil
-}
-
-func deleteAccessory(conn *pgx.Conn, accessoryID int) error {
-	conn.Exec(context.Background(), "DELETE FROM accessory_consoles WHERE accessory_id = $1", accessoryID)
-	_, err := conn.Exec(context.Background(), "DELETE FROM accessories WHERE accessory_id = $1", accessoryID)
-	return err
-}
-
 func getAccessoryTypes(conn *pgx.Conn) ([]AccessoryType, error) {
 	rows, err := conn.Query(context.Background(), "SELECT type_id, name FROM accessory_types ORDER BY name")
 	if err != nil {
@@ -492,39 +525,21 @@ func getAccessoryTypes(conn *pgx.Conn) ([]AccessoryType, error) {
 	return types, nil
 }
 
-func getConsoleByID(conn *pgx.Conn, consoleID int) (*Console, error) {
-	query := `
-		SELECT 
-			c.console_id, c.name, c.generation, c.type_id, c.manufacturer_id,
-			c.jp_release_date, c.us_release_date, c.eu_release_date, c.discontinued,
-			c.price_jpy, c.price_usd, c.controllers, c.cpu, c.gpu, c.memory, c.audio,
-			c.units_sold, c.top_game, c.predecessor, c.successor,
-			c.owned, c.condition, c.notes,
-			COALESCE(m.name, '') as manufacturer_name,
-			COALESCE(ct.name, '') as type_name
-		FROM consoles c
-		LEFT JOIN manufacturers m ON c.manufacturer_id = m.manufacturer_id
-		LEFT JOIN console_types ct ON c.type_id = ct.type_id
-		WHERE c.console_id = $1
-	`
-
-	var console Console
-	err := conn.QueryRow(context.Background(), query, consoleID).Scan(
-		&console.ConsoleID, &console.Name, &console.Generation, &console.TypeID, &console.ManufacturerID,
-		&console.JPReleaseDate, &console.USReleaseDate, &console.EUReleaseDate, &console.Discontinued,
-		&console.PriceJPY, &console.PriceUSD, &console.Controllers, &console.CPU, &console.GPU, &console.Memory, &console.Audio,
-		&console.UnitsSold, &console.TopGame, &console.Predecessor, &console.Successor,
-		&console.Owned, &console.Condition, &console.Notes,
-		&console.ManufacturerName, &console.TypeName,
-	)
+func getRatingSystems(conn *pgx.Conn) ([]RatingSystem, error) {
+	rows, err := conn.Query(context.Background(), "SELECT rating_id, region, code, description FROM rating_systems ORDER BY region, code")
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	return &console, nil
-}
-
-func deleteConsole(conn *pgx.Conn, consoleID int) error {
-	_, err := conn.Exec(context.Background(), "DELETE FROM consoles WHERE console_id = $1", consoleID)
-	return err
+	var ratings []RatingSystem
+	for rows.Next() {
+		var r RatingSystem
+		err := rows.Scan(&r.RatingID, &r.Region, &r.Code, &r.Description)
+		if err != nil {
+			return nil, err
+		}
+		ratings = append(ratings, r)
+	}
+	return ratings, nil
 }
