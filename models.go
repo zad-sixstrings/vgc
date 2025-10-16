@@ -76,6 +76,7 @@ type Console struct {
 type Accessory struct {
 	AccessoryID   int
 	Name          string
+	Color         *string
 	Condition     *int
 	Owned         bool
 	PurchaseDate  *time.Time

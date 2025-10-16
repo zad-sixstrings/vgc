@@ -18,35 +18,60 @@ func main() {
 	}
 	defer conn.Close(context.Background())
 
-	// Fetch data
-	games, err := getGames(conn)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	consoles, err := getConsoles(conn)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	// Create app
 	a := app.New()
 	w := a.NewWindow("VGC")
 
-	// Build tab contents
-	accueilContent := widget.NewLabel("Dashboard") // TODO
-	jeuxContent := buildJeuxTab(games)
-	consolesContent := buildConsolesTab(consoles)
-	accessoiresContent := widget.NewLabel("Accessoires") // TODO
-
-	// Create sidebar with tabs
+	// Create sidebar with tabs (we'll update the content dynamically)
 	sidebar := container.NewAppTabs(
-		container.NewTabItem("Accueil", accueilContent),
-		container.NewTabItem("Jeux", jeuxContent),
-		container.NewTabItem("Consoles", consolesContent),
-		container.NewTabItem("Accessoires", accessoiresContent),
+		container.NewTabItem("Accueil", widget.NewLabel("Dashboard")),
+		container.NewTabItem("Jeux", widget.NewLabel("Loading...")),
+		container.NewTabItem("Consoles", widget.NewLabel("Loading...")),
+		container.NewTabItem("Accessoires", widget.NewLabel("Loading...")),
 	)
 	sidebar.SetTabLocation(container.TabLocationLeading)
+
+	// Declare refresh functions as variables first
+	var refreshGamesTab func()
+	var refreshConsolesTab func()
+	var refreshAccessoriesTab func() // ← NEW: Add this line
+
+	// Now define them
+	refreshGamesTab = func() {
+		games, err := getGames(conn)
+		if err != nil {
+			log.Println("Error fetching games:", err)
+			return
+		}
+		sidebar.Items[1].Content = buildJeuxTab(w, conn, games, refreshGamesTab)
+		sidebar.Refresh()
+	}
+
+	refreshConsolesTab = func() {
+		consoles, err := getConsoles(conn)
+		if err != nil {
+			log.Println("Error fetching consoles:", err)
+			return
+		}
+		sidebar.Items[2].Content = buildConsolesTab(w, conn, consoles, refreshConsolesTab)
+		sidebar.Refresh()
+	}
+
+	// ← NEW: Add this entire function
+	refreshAccessoriesTab = func() {
+		accessories, err := getAccessories(conn)
+		if err != nil {
+			log.Println("Error fetching accessories:", err)
+			return
+		}
+		sidebar.Items[3].Content = buildAccessoiresTab(w, conn, accessories, refreshAccessoriesTab)
+		sidebar.Refresh()
+	}
+
+	// Initial load of data
+	refreshGamesTab()
+	refreshConsolesTab()
+	refreshAccessoriesTab() // ← NEW: Add this line
 
 	// Run app
 	w.SetContent(sidebar)
