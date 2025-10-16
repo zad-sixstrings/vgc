@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// buildGamesTable creates and configures the games table
+// Create and configures the games table
 func buildGamesTable(games []Game) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
@@ -52,7 +52,7 @@ func buildGamesTable(games []Game) *widget.Table {
 	return table
 }
 
-// buildConsolesTable creates and configures the consoles table
+// Create and configures the consoles table
 func buildConsolesTable(consoles []Console) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
@@ -96,7 +96,7 @@ func buildConsolesTable(consoles []Console) *widget.Table {
 	return table
 }
 
-// buildJeuxTab creates the complete "Jeux" tab content
+// Create the games tab content
 func buildJeuxTab(games []Game) fyne.CanvasObject {
 	table := buildGamesTable(games)
 	return container.NewBorder(
@@ -106,7 +106,7 @@ func buildJeuxTab(games []Game) fyne.CanvasObject {
 	)
 }
 
-// buildConsolesTab creates the complete "Consoles" tab content
+// Create the consoles tab content
 func buildConsolesTab(consoles []Console) fyne.CanvasObject {
 	table := buildConsolesTable(consoles)
 	return container.NewBorder(

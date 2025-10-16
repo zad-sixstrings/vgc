@@ -34,10 +34,10 @@ func main() {
 	w := a.NewWindow("VGC")
 
 	// Build tab contents
-	accueilContent := widget.NewLabel("Dashboard")
+	accueilContent := widget.NewLabel("Dashboard") // TODO
 	jeuxContent := buildJeuxTab(games)
 	consolesContent := buildConsolesTab(consoles)
-	accessoiresContent := widget.NewLabel("Accessoires")
+	accessoiresContent := widget.NewLabel("Accessoires") // TODO
 
 	// Create sidebar with tabs
 	sidebar := container.NewAppTabs(
