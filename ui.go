@@ -52,9 +52,9 @@ func buildGamesTable(games []Game, editBtn, deleteBtn *widget.Button) *widget.Ta
 			case 1:
 				label.SetText(game.Title)
 			case 2:
-				label.SetText(game.Platform)
+				label.SetText(game.ConsoleName) // Changed from Platform
 			case 3:
-				label.SetText(game.Genre)
+				label.SetText(game.GenreName) // Changed from Genre
 			}
 		},
 	)
@@ -115,9 +115,14 @@ func buildConsolesTable(consoles []Console, editBtn, deleteBtn *widget.Button) *
 			case 1:
 				label.SetText(console.Name)
 			case 2:
-				label.SetText(console.Manufacturer)
+				label.SetText(console.ManufacturerName) // Changed from Manufacturer
 			case 3:
-				label.SetText(fmt.Sprintf("%d", console.Generation))
+				// Handle nullable Generation
+				if console.Generation != nil {
+					label.SetText(fmt.Sprintf("%d", *console.Generation))
+				} else {
+					label.SetText("")
+				}
 			}
 		},
 	)
@@ -125,7 +130,7 @@ func buildConsolesTable(consoles []Console, editBtn, deleteBtn *widget.Button) *
 	// Custom headers
 	table.UpdateHeader = func(id widget.TableCellID, obj fyne.CanvasObject) {
 		label := obj.(*widget.Label)
-		headers := []string{"ID", "Nom", "Frabriquant", "Gen"}
+		headers := []string{"ID", "Nom", "Fabricant", "Gen"}
 		label.SetText(headers[id.Col])
 	}
 
