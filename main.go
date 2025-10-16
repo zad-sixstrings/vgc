@@ -73,10 +73,6 @@ func main() {
 			label.SetText("Genre")
 		}
 	}
-	gamesTable.OnSelected = func(id widget.TableCellID) {
-		selectedGame := games[id.Row]
-		fmt.Printf("Edit game: %s\n", selectedGame.Title)
-	}
 
 	// Build games table
 	consolesTable := widget.NewTableWithHeaders(
