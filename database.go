@@ -34,3 +34,41 @@ func dbconnect() (*pgx.Conn, error) {
 
 	return conn, nil
 }
+
+func getGames(conn *pgx.Conn) ([]Game, error) {
+	rows, err := conn.Query(context.Background(), "SELECT game_id, title, platform, genre FROM games")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var games []Game
+	for rows.Next() {
+		var g Game
+		err := rows.Scan(&g.GameID, &g.Title, &g.Platform, &g.Genre)
+		if err != nil {
+			return nil, err
+		}
+		games = append(games, g)
+	}
+	return games, nil
+}
+
+func getConsoles(conn *pgx.Conn) ([]Console, error) {
+	rows, err := conn.Query(context.Background(), "SELECT console_id, name, manufacturer, generation FROM consoles")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consoles []Console
+	for rows.Next() {
+		var c Console
+		err := rows.Scan(&c.ConsoleID, &c.Name, &c.Manufacturer, &c.Generation)
+		if err != nil {
+			return nil, err
+		}
+		consoles = append(consoles, c)
+	}
+	return consoles, nil
+}
