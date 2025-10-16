@@ -3,22 +3,20 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 )
 
-func dbconnect() {
-
+func dbconnect() (*pgx.Conn, error) {
 	// Load .env file
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading.env file")
+		return nil, fmt.Errorf("error loading .env file: %w", err)
 	}
 
-	//Make connection string from .env
+	// Make connection string from .env
 	connStr := fmt.Sprintf(
 		"postgresql://%s:%s@%s:%s/%s",
 		os.Getenv("DB_USER"),
@@ -28,12 +26,11 @@ func dbconnect() {
 		os.Getenv("DB_NAME"),
 	)
 
-	// connect to database
+	// Connect to database
 	conn, err := pgx.Connect(context.Background(), connStr)
 	if err != nil {
-		log.Fatal("Unable to connect to database:", err)
+		return nil, fmt.Errorf("unable to connect to database: %w", err)
 	}
 
-	defer conn.Close(context.Background())
-
+	return conn, nil
 }
