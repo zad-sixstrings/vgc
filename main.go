@@ -20,6 +20,7 @@ func main() {
 
 	// Create app
 	a := app.New()
+	a.Settings().SetTheme(&compactTheme{})
 	w := a.NewWindow("VGC")
 
 	// Create sidebar with tabs
@@ -75,7 +76,6 @@ func main() {
 
 	// Run app
 	w.SetContent(sidebar)
-	w.Resize(fyne.NewSize(1600, 900))
+	w.Resize(fyne.NewSize(1800, 900))
 	w.ShowAndRun()
 }
-

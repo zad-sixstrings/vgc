@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"image/color"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -468,8 +470,6 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.usReleaseDateEntry,
 		widget.NewLabel("Japon:"),
 		formData.jpReleaseDateEntry,
-		
-
 
 		widget.NewSeparator(),
 		widget.NewLabel("Classifications"),
@@ -530,32 +530,63 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 
 // showAddGameDialog shows the dialog to add a new game
 func showAddGameDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
-	formData := buildGameForm(w, conn, nil) // nil = no existing game
+	formData := buildGameForm(w, conn, nil)
+
+	// Create dialog first
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
 
 	saveBtn := widget.NewButton("Enregistrer", func() {
-		gameID, err := saveGame(conn, formData, 0) // 0 = new game
+		gameID, err := saveGame(conn, formData, 0)
 		if err != nil {
 			dialog.ShowError(err, w)
 			return
 		}
 
-		// Save many-to-many relationships
 		saveManyToManyRelationships(conn, gameID, formData)
 
 		dialog.ShowInformation("Enregistré", "Jeu ajouté à la base de données", w)
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Ajouter", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Ajouter un jeu", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
@@ -569,10 +600,18 @@ func showEditGameDialog(w fyne.Window, conn *pgx.Conn, gameID int, onSuccess fun
 		return
 	}
 
-	formData := buildGameForm(w, conn, existingGame) // Pre-populate with existing data
+	formData := buildGameForm(w, conn, existingGame)
+
+	// Create dialog first (we'll need it for the close functionality)
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
 
 	saveBtn := widget.NewButton("Enregistrer", func() {
-		_, err := saveGame(conn, formData, gameID) // gameID != 0 = update
+		_, err := saveGame(conn, formData, gameID)
 		if err != nil {
 			dialog.ShowError(err, w)
 			return
@@ -590,16 +629,40 @@ func showEditGameDialog(w fyne.Window, conn *pgx.Conn, gameID int, onSuccess fun
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side, centered
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Enregistrer", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Modifier un jeu", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
@@ -1139,6 +1202,14 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 func showAddAccessoryDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	formData := buildAccessoryForm(w, conn, nil)
 
+	// Create dialog first (we'll need it for the close functionality)
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
+
 	saveBtn := widget.NewButton("Enregistrer", func() {
 		accessoryID, err := saveAccessory(conn, formData, 0)
 		if err != nil {
@@ -1157,16 +1228,40 @@ func showAddAccessoryDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side, centered
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Ajouter", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Ajouter un accessoire", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
@@ -1180,6 +1275,14 @@ func showEditAccessoryDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onS
 	}
 
 	formData := buildAccessoryForm(w, conn, existingAccessory)
+
+	// Create dialog first (we'll need it for the close functionality)
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
 
 	saveBtn := widget.NewButton("Enregistrer", func() {
 		_, err := saveAccessory(conn, formData, accessoryID)
@@ -1200,16 +1303,40 @@ func showEditAccessoryDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onS
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side, centered
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Éditer", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Modifier un accessoire", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
@@ -1451,8 +1578,6 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.priceJPYEntry.SetText(fmt.Sprintf("%d", *existingConsole.PriceJPY))
 	}
 
-
-
 	// ========== Hardware Specs ==========
 	formData.controllersEntry = widget.NewEntry()
 	formData.controllersEntry.SetPlaceHolder("Ports contrôleurs")
@@ -1613,6 +1738,14 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 func showAddConsoleDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	formData := buildConsoleForm(w, conn, nil)
 
+	// Create dialog first (we'll need it for the close functionality)
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
+
 	saveBtn := widget.NewButton("Enregistrer", func() {
 		_, err := saveConsole(conn, formData, 0)
 		if err != nil {
@@ -1624,16 +1757,40 @@ func showAddConsoleDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side, centered
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Ajouter", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Ajouter une console", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
@@ -1648,6 +1805,14 @@ func showEditConsoleDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onSucce
 
 	formData := buildConsoleForm(w, conn, existingConsole)
 
+	// Create dialog first (we'll need it for the close functionality)
+	var d dialog.Dialog
+
+	// Create buttons side-by-side
+	cancelBtn := widget.NewButton("Annuler", func() {
+		d.Hide()
+	})
+
 	saveBtn := widget.NewButton("Enregistrer", func() {
 		_, err := saveConsole(conn, formData, consoleID)
 		if err != nil {
@@ -1659,16 +1824,40 @@ func showEditConsoleDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onSucce
 		if onSuccess != nil {
 			onSuccess()
 		}
+		d.Hide()
 	})
 
 	saveBtn.Importance = widget.HighImportance
 
-	formWithSave := container.NewBorder(
-		nil, saveBtn, nil, nil,
-		container.NewScroll(formData.form),
+	// Buttons side-by-side, centered
+	buttonBar := container.NewCenter(
+		container.NewHBox(
+			cancelBtn,
+			saveBtn,
+		),
 	)
 
-	d := dialog.NewCustom("Éditer", "Annuler", formWithSave, w)
+	// Padding for scrollable areas
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	paddedForm := container.NewBorder(
+		nil, nil,
+		leftPadding,
+		rightPadding,
+		formData.form,
+	)
+
+	formWithButtons := container.NewBorder(
+		nil, buttonBar, nil, nil,
+		container.NewScroll(paddedForm),
+	)
+
+	// Create dialog without default buttons
+	d = dialog.NewCustomWithoutButtons("Modifier une console", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
