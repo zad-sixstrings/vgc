@@ -723,13 +723,6 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 			WHERE game_id = $18
 		`
 
-		_, err := conn.Exec(context.Background(), quer
-				jp_rating_id = $7, us_rating_id = $8, eu_rating_id = $9,
-				units_sold = $10, owned = $11, box_owned = $12, collector = $13,
-				condition = $14, purchase_date = $15, purchase_price = $16, notes = $17
-			WHERE game_id = $18
-		`
-
 		_, err := conn.Exec(context.Background(), query,
 			formData.titleEntry.Text, consoleID, genreID,
 			jpReleaseDate, usReleaseDate, euReleaseDate,
