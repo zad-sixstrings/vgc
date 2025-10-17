@@ -13,9 +13,40 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// gameFormData holds all the form fields and their data
+// ========== DIALOG HELPERS ==========
+// These helpers reduce repetition across all 6 dialog functions
+
+// createDialogPadding creates transparent padding rectangles for scrollable areas
+// This workaround allows scrolling when hovering over the padding zones (Fyne limitation)
+func createDialogPadding() (*canvas.Rectangle, *canvas.Rectangle) {
+	leftPadding := canvas.NewRectangle(color.Transparent)
+	leftPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	rightPadding := canvas.NewRectangle(color.Transparent)
+	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+
+	return leftPadding, rightPadding
+}
+
+// createDialogButtons creates centered Cancel/Save buttons for dialogs
+// Returns the button bar container and both buttons for custom configuration
+func createDialogButtons(cancelFunc, saveFunc func()) (*widget.Button, *widget.Button, *fyne.Container) {
+	cancelBtn := widget.NewButton("Annuler", cancelFunc)
+	saveBtn := widget.NewButton("Enregistrer", saveFunc)
+	saveBtn.Importance = widget.HighImportance
+
+	buttonBar := container.NewCenter(
+		container.NewHBox(cancelBtn, saveBtn),
+	)
+
+	return cancelBtn, saveBtn, buttonBar
+}
+
+// ========== GAME FORM DATA STRUCTURE ==========
+
+// gameFormData holds all form fields and selected data for game dialogs
 type gameFormData struct {
-	// Form widgets
+	// Basic form widgets
 	titleEntry         *widget.Entry
 	consoleSelect      *widget.Select
 	genreSelect        *widget.Select
@@ -35,7 +66,7 @@ type gameFormData struct {
 	purchasePriceEntry *widget.Entry
 	notesEntry         *widget.Entry
 
-	// Many-to-many data
+	// Many-to-many relationship data
 	selectedDevelopers   []string
 	selectedDeveloperIDs []int
 	developersList       *widget.Label
@@ -49,16 +80,19 @@ type gameFormData struct {
 	selectedProducerIDs  []int
 	producersList        *widget.Label
 
-	// Lookup maps
+	// Lookup maps: name -> ID mappings for dropdowns
 	consoleMap map[string]int
 	genreMap   map[string]int
 	ratingMap  map[string]int
 
-	// The complete form container
+	// The assembled form container
 	form *fyne.Container
 }
 
-// buildGameForm creates the game form, optionally pre-populated with existing data
+// ========== BUILD GAME FORM ==========
+
+// buildGameForm creates the complete game form with all fields and many-to-many relationships
+// If existingGame is provided, the form is pre-populated for editing
 func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormData {
 	formData := &gameFormData{
 		consoleMap: make(map[string]int),
@@ -66,7 +100,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		ratingMap:  make(map[string]int),
 	}
 
-	// Fetch lookup data
+	// Fetch all lookup data needed for dropdowns
 	consoles, _ := getConsoles(conn)
 	genres, _ := getGenres(conn)
 	ratings, _ := getRatingSystems(conn)
@@ -75,14 +109,16 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	publishers, _ := getPublishers(conn)
 	producers, _ := getProducers(conn)
 
-	// ========== Basic Info ==========
+	// ========== Basic Info Fields ==========
+
+	// Title field (required)
 	formData.titleEntry = widget.NewEntry()
 	formData.titleEntry.SetPlaceHolder("Titre (requis)")
 	if existingGame != nil {
 		formData.titleEntry.SetText(existingGame.Title)
 	}
 
-	// Console dropdown
+	// Console dropdown (required) - build options and pre-select if editing
 	consoleOptions := []string{""}
 	var selectedConsoleName string
 	for _, c := range consoles {
@@ -98,7 +134,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.consoleSelect.SetSelected(selectedConsoleName)
 	}
 
-	// Genre dropdown
+	// Genre dropdown (optional)
 	genreOptions := []string{""}
 	var selectedGenreName string
 	for _, g := range genres {
@@ -114,7 +150,8 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.genreSelect.SetSelected(selectedGenreName)
 	}
 
-	// ========== Release Dates ==========
+	// ========== Release Date Fields ==========
+
 	formData.jpReleaseDateEntry = widget.NewEntry()
 	formData.jpReleaseDateEntry.SetPlaceHolder("AAAA-MM-JJ")
 	if existingGame != nil && existingGame.JPReleaseDate != nil {
@@ -133,7 +170,9 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.euReleaseDateEntry.SetText(existingGame.EUReleaseDate.Format("2006-01-02"))
 	}
 
-	// ========== Ratings ==========
+	// ========== Rating Dropdowns ==========
+	// Build separate dropdown options for each region (JP, US, EU)
+
 	jpRatings := []string{""}
 	usRatings := []string{""}
 	euRatings := []string{""}
@@ -143,6 +182,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		label := fmt.Sprintf("%s - %s", r.Code, r.Region)
 		formData.ratingMap[label] = r.RatingID
 
+		// Sort ratings by region
 		switch r.Region {
 		case "JP":
 			jpRatings = append(jpRatings, label)
@@ -162,6 +202,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	}
 
+	// Create rating dropdowns for each region
 	formData.euRatingSelect = widget.NewSelect(euRatings, nil)
 	formData.euRatingSelect.PlaceHolder = "Classification EU"
 	if selectedEURating != "" {
@@ -181,18 +222,20 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	}
 
 	// ========== Units Sold ==========
+
 	formData.unitsSoldEntry = widget.NewEntry()
 	formData.unitsSoldEntry.SetPlaceHolder("Total des copies vendues")
 	if existingGame != nil && existingGame.UnitsSold != nil {
 		formData.unitsSoldEntry.SetText(fmt.Sprintf("%d", *existingGame.UnitsSold))
 	}
 
-	// ========== Collection Info ==========
+	// ========== Collection Info Fields ==========
+
 	formData.ownedCheck = widget.NewCheck("Possédé", nil)
 	if existingGame != nil {
 		formData.ownedCheck.Checked = existingGame.Owned
 	} else {
-		formData.ownedCheck.Checked = true
+		formData.ownedCheck.Checked = true // Default to owned
 	}
 
 	formData.boxOwnedCheck = widget.NewCheck("Boîte possédée", nil)
@@ -205,7 +248,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.collectorCheck.Checked = *existingGame.Collector
 	}
 
-	// Condition
+	// Condition slider (1-5 stars)
 	formData.conditionSlider = widget.NewSlider(1, 5)
 	formData.conditionSlider.Step = 1
 	if existingGame != nil && existingGame.Condition != nil {
@@ -215,11 +258,13 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	if existingGame != nil && existingGame.Condition != nil {
 		formData.conditionLabel.SetText(fmt.Sprintf("État: %d", *existingGame.Condition))
 	}
+	// Update label as slider changes
 	formData.conditionSlider.OnChanged = func(value float64) {
 		formData.conditionLabel.SetText(fmt.Sprintf("État: %d", int(value)))
 	}
 
 	// ========== Purchase Info ==========
+
 	formData.purchaseDateEntry = widget.NewEntry()
 	formData.purchaseDateEntry.SetPlaceHolder("AAAA-MM-JJ")
 	if existingGame != nil && existingGame.PurchaseDate != nil {
@@ -232,7 +277,8 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.purchasePriceEntry.SetText(fmt.Sprintf("%.2f", *existingGame.PurchasePrice))
 	}
 
-	// ========== Notes ==========
+	// ========== Notes Field ==========
+
 	formData.notesEntry = widget.NewMultiLineEntry()
 	formData.notesEntry.SetPlaceHolder("Notes")
 	formData.notesEntry.SetMinRowsVisible(3)
@@ -241,6 +287,8 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	}
 
 	// ========== Many-to-Many: Developers ==========
+	// Build the developer selection interface with Add/Clear buttons
+
 	formData.developersList = widget.NewLabel("-")
 	developerOptions := []string{}
 	developerNameToID := make(map[string]int)
@@ -249,7 +297,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		developerNameToID[d.Name] = d.DeveloperID
 	}
 
-	// Pre-populate if editing
+	// Pre-populate selected developers if editing
 	if existingGame != nil {
 		formData.selectedDevelopers = existingGame.Developers
 		for _, name := range existingGame.Developers {
@@ -265,6 +313,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	developerSelect := widget.NewSelect(developerOptions, nil)
 	developerSelect.PlaceHolder = "Sélectionner développeur(s)"
 
+	// Add button - adds selected developer to the list
 	addDeveloperBtn := widget.NewButton("Ajouter", func() {
 		if developerSelect.Selected != "" && !contains(formData.selectedDevelopers, developerSelect.Selected) {
 			formData.selectedDevelopers = append(formData.selectedDevelopers, developerSelect.Selected)
@@ -274,14 +323,17 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	})
 
+	// Clear button - removes all selected developers
 	clearDevelopersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedDevelopers = []string{}
 		formData.selectedDeveloperIDs = []int{}
 		formData.developersList.SetText("-")
 	})
 
+	// + New button - opens dialog to add a new developer to the database
 	newDeveloperBtn := widget.NewButton("+", func() {
 		showAddDeveloperDialog(w, conn, func() {
+			// Refresh developer list after adding new one
 			developers, _ = getDevelopers(conn)
 			developerOptions = []string{}
 			developerNameToID = make(map[string]int)
@@ -295,6 +347,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	})
 
 	// ========== Many-to-Many: Composers ==========
+
 	formData.composersList = widget.NewLabel("-")
 	composerOptions := []string{}
 	composerNameToID := make(map[string]int)
@@ -330,7 +383,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	clearComposersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedComposers = []string{}
 		formData.selectedComposerIDs = []int{}
-		formData.composersList.SetText(".")
+		formData.composersList.SetText("-") // Fixed: was "." instead of "-"
 	})
 
 	newComposerBtn := widget.NewButton("+", func() {
@@ -348,6 +401,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	})
 
 	// ========== Many-to-Many: Publishers ==========
+
 	formData.publishersList = widget.NewLabel("-")
 	publisherOptions := []string{}
 	publisherNameToID := make(map[string]int)
@@ -401,6 +455,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	})
 
 	// ========== Many-to-Many: Producers ==========
+
 	formData.producersList = widget.NewLabel("-")
 	producerOptions := []string{}
 	producerNameToID := make(map[string]int)
@@ -453,7 +508,9 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		})
 	})
 
-	// ========== Build Form Layout ==========
+	// ========== Assemble Form Layout ==========
+	// Build the complete form with all sections in vertical layout
+
 	formData.form = container.NewVBox(
 		widget.NewLabel("Titre *"),
 		formData.titleEntry,
@@ -482,7 +539,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		formData.unitsSoldEntry,
 
 		widget.NewSeparator(),
-		widget.NewLabel("Dévelopeur(s)"),
+		widget.NewLabel("Développeur(s)"),
 		container.NewBorder(nil, nil, nil, container.NewHBox(addDeveloperBtn, newDeveloperBtn), developerSelect),
 		formData.developersList,
 		clearDevelopersBtn,
@@ -528,50 +585,37 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	return formData
 }
 
-// showAddGameDialog shows the dialog to add a new game
+// ========== GAME DIALOG FUNCTIONS ==========
+
+// showAddGameDialog displays a dialog to add a new game to the database
 func showAddGameDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
-	formData := buildGameForm(w, conn, nil)
+	formData := buildGameForm(w, conn, nil) // nil = new game, not editing
 
-	// Create dialog first
-	var d dialog.Dialog
+	var d dialog.Dialog // Declare early so buttons can reference it
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	// Create buttons with helper
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() }, // Cancel action
+		func() {
+			// Save action
+			gameID, err := saveGame(conn, formData, 0) // 0 = INSERT mode
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		gameID, err := saveGame(conn, formData, 0)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
+			saveManyToManyRelationships(conn, gameID, formData)
 
-		saveManyToManyRelationships(conn, gameID, formData)
-
-		dialog.ShowInformation("Enregistré", "Jeu ajouté à la base de données", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Enregistré", "Jeu ajouté à la base de données", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	// Create scrollable padding
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -585,69 +629,50 @@ func showAddGameDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Ajouter un jeu", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// showEditGameDialog shows the dialog to edit an existing game
+// showEditGameDialog displays a dialog to edit an existing game
 func showEditGameDialog(w fyne.Window, conn *pgx.Conn, gameID int, onSuccess func()) {
-	// Fetch existing game
+	// Fetch existing game data
 	existingGame, err := getGameByID(conn, gameID)
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("échec de chargement du jeu: %w", err), w)
 		return
 	}
 
-	formData := buildGameForm(w, conn, existingGame)
+	formData := buildGameForm(w, conn, existingGame) // Pre-populate form
 
-	// Create dialog first (we'll need it for the close functionality)
 	var d dialog.Dialog
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() },
+		func() {
+			_, err := saveGame(conn, formData, gameID) // gameID != 0 = UPDATE mode
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		_, err := saveGame(conn, formData, gameID)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
+			// Delete old relationships and save new ones
+			conn.Exec(context.Background(), "DELETE FROM game_developers WHERE game_id = $1", gameID)
+			conn.Exec(context.Background(), "DELETE FROM game_composers WHERE game_id = $1", gameID)
+			conn.Exec(context.Background(), "DELETE FROM game_publishers WHERE game_id = $1", gameID)
+			conn.Exec(context.Background(), "DELETE FROM game_producers WHERE game_id = $1", gameID)
 
-		// Delete old relationships and save new ones
-		conn.Exec(context.Background(), "DELETE FROM game_developers WHERE game_id = $1", gameID)
-		conn.Exec(context.Background(), "DELETE FROM game_composers WHERE game_id = $1", gameID)
-		conn.Exec(context.Background(), "DELETE FROM game_publishers WHERE game_id = $1", gameID)
-		conn.Exec(context.Background(), "DELETE FROM game_producers WHERE game_id = $1", gameID)
+			saveManyToManyRelationships(conn, gameID, formData)
 
-		saveManyToManyRelationships(conn, gameID, formData)
-
-		dialog.ShowInformation("Mise à jour", "Jeu mis à jour dans la base de données.", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side, centered
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Mise à jour", "Jeu mis à jour dans la base de données.", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -661,15 +686,17 @@ func showEditGameDialog(w fyne.Window, conn *pgx.Conn, gameID int, onSuccess fun
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Modifier un jeu", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// saveGame saves or updates a game (INSERT if gameID=0, UPDATE if gameID>0)
+// ========== GAME SAVE FUNCTIONS ==========
+
+// saveGame inserts or updates a game in the database
+// If gameID == 0, performs INSERT; otherwise performs UPDATE
 func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
-	// Validate
+	// Validate required fields
 	if formData.titleEntry.Text == "" {
 		return 0, fmt.Errorf("titre requis")
 	}
@@ -677,7 +704,7 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		return 0, fmt.Errorf("plateforme requise")
 	}
 
-	// Prepare data
+	// Convert dropdown selections to IDs
 	var consoleID *int
 	if formData.consoleSelect.Selected != "" {
 		id := formData.consoleMap[formData.consoleSelect.Selected]
@@ -690,7 +717,7 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		genreID = &id
 	}
 
-	// Parse dates
+	// Parse date fields (convert to nil if empty)
 	var jpReleaseDate, usReleaseDate, euReleaseDate, purchaseDate *string
 	if formData.jpReleaseDateEntry.Text != "" {
 		jpReleaseDate = &formData.jpReleaseDateEntry.Text
@@ -705,7 +732,7 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		purchaseDate = &formData.purchaseDateEntry.Text
 	}
 
-	// Parse ratings
+	// Parse rating selections
 	var jpRatingID, usRatingID, euRatingID *int
 	if formData.jpRatingSelect.Selected != "" {
 		id := formData.ratingMap[formData.jpRatingSelect.Selected]
@@ -720,7 +747,7 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		euRatingID = &id
 	}
 
-	// Parse units sold
+	// Parse numeric fields
 	var unitsSold *int
 	if formData.unitsSoldEntry.Text != "" {
 		var units int
@@ -728,7 +755,6 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		unitsSold = &units
 	}
 
-	// Parse purchase price
 	var purchasePrice *float64
 	if formData.purchasePriceEntry.Text != "" {
 		var price float64
@@ -736,7 +762,6 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		purchasePrice = &price
 	}
 
-	// Parse condition
 	var condition *int
 	if formData.conditionSlider.Value > 0 {
 		c := int(formData.conditionSlider.Value)
@@ -749,7 +774,7 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 		notes = &formData.notesEntry.Text
 	}
 
-	// INSERT or UPDATE
+	// Execute INSERT or UPDATE based on gameID
 	if gameID == 0 {
 		// INSERT new game
 		query := `
@@ -804,30 +829,30 @@ func saveGame(conn *pgx.Conn, formData *gameFormData, gameID int) (int, error) {
 	}
 }
 
-// saveManyToManyRelationships saves all many-to-many relationships for a game
+// saveManyToManyRelationships saves all many-to-many relationship entries for a game
 func saveManyToManyRelationships(conn *pgx.Conn, gameID int, formData *gameFormData) {
-	// Developers
+	// Insert developers
 	for _, devID := range formData.selectedDeveloperIDs {
 		conn.Exec(context.Background(),
 			"INSERT INTO game_developers (game_id, developer_id) VALUES ($1, $2)",
 			gameID, devID)
 	}
 
-	// Composers
+	// Insert composers
 	for _, compID := range formData.selectedComposerIDs {
 		conn.Exec(context.Background(),
 			"INSERT INTO game_composers (game_id, composer_id) VALUES ($1, $2)",
 			gameID, compID)
 	}
 
-	// Publishers
+	// Insert publishers
 	for _, pubID := range formData.selectedPublisherIDs {
 		conn.Exec(context.Background(),
 			"INSERT INTO game_publishers (game_id, publisher_id) VALUES ($1, $2)",
 			gameID, pubID)
 	}
 
-	// Producers
+	// Insert producers
 	for _, prodID := range formData.selectedProducerIDs {
 		conn.Exec(context.Background(),
 			"INSERT INTO game_producers (game_id, producer_id) VALUES ($1, $2)",
@@ -835,8 +860,9 @@ func saveManyToManyRelationships(conn *pgx.Conn, gameID int, formData *gameFormD
 	}
 }
 
-// ========== Helper Functions ==========
+// ========== HELPER FUNCTIONS ==========
 
+// contains checks if a string slice contains a specific string
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -846,6 +872,7 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
+// formatList formats a string slice into a comma-separated display string
 func formatList(items []string) string {
 	if len(items) == 0 {
 		return "Aucune sélection"
@@ -860,7 +887,8 @@ func formatList(items []string) string {
 	return result
 }
 
-// ========== Add New Lookup Entry Dialogs ==========
+// ========== LOOKUP ENTRY DIALOGS ==========
+// Simple dialogs for adding new entries to lookup tables
 
 func showAddDeveloperDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	nameEntry := widget.NewEntry()
@@ -975,10 +1003,10 @@ func showAddProducerDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 }
 
 // ========== ACCESSORIES CRUD ==========
+// Similar pattern to Games - form data structure, build form, show/edit/save dialogs
 
-// accessoryFormData holds all the form fields for accessories
+// accessoryFormData holds all form fields for accessory dialogs
 type accessoryFormData struct {
-	// Form widgets
 	nameEntry          *widget.Entry
 	colorEntry         *widget.Entry
 	typeSelect         *widget.Select
@@ -991,7 +1019,7 @@ type accessoryFormData struct {
 	purchasePriceEntry *widget.Entry
 	notesEntry         *widget.Entry
 
-	// Many-to-many consoles
+	// Many-to-many: compatible consoles
 	selectedConsoles   []string
 	selectedConsoleIDs []int
 	consolesList       *widget.Label
@@ -1000,11 +1028,10 @@ type accessoryFormData struct {
 	typeMap         map[string]int
 	manufacturerMap map[string]int
 
-	// The complete form container
 	form *fyne.Container
 }
 
-// buildAccessoryForm creates the accessory form, optionally pre-populated
+// buildAccessoryForm creates the accessory form (similar to buildGameForm pattern)
 func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Accessory) *accessoryFormData {
 	formData := &accessoryFormData{
 		typeMap:         make(map[string]int),
@@ -1016,13 +1043,14 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 	manufacturers, _ := getManufacturers(conn)
 	consoles, _ := getConsoles(conn)
 
-	// ========== Basic Info ==========
+	// Name field (required)
 	formData.nameEntry = widget.NewEntry()
 	formData.nameEntry.SetPlaceHolder("Nom de l'accessoire (requis)")
 	if existingAccessory != nil {
 		formData.nameEntry.SetText(existingAccessory.Name)
 	}
 
+	// Color field (optional)
 	formData.colorEntry = widget.NewEntry()
 	formData.colorEntry.SetPlaceHolder("Couleur")
 	if existingAccessory != nil && existingAccessory.Color != nil {
@@ -1061,7 +1089,7 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.manufacturerSelect.SetSelected(selectedManufacturerName)
 	}
 
-	// ========== Consoles (Many-to-Many) ==========
+	// Many-to-Many: Compatible consoles
 	formData.consolesList = widget.NewLabel("-")
 	consoleOptions := []string{}
 	consoleNameToID := make(map[string]int)
@@ -1101,16 +1129,16 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.consolesList.SetText("-")
 	})
 
-	// ========== Quantity ==========
+	// Quantity field
 	formData.quantityEntry = widget.NewEntry()
 	formData.quantityEntry.SetPlaceHolder("Quantité")
 	if existingAccessory != nil {
 		formData.quantityEntry.SetText(fmt.Sprintf("%d", existingAccessory.Quantity))
 	} else {
-		formData.quantityEntry.SetText("1") // Default to 1
+		formData.quantityEntry.SetText("1") // Default quantity
 	}
 
-	// ========== Collection Info ==========
+	// Collection info fields
 	formData.ownedCheck = widget.NewCheck("Possédé", nil)
 	if existingAccessory != nil {
 		formData.ownedCheck.Checked = existingAccessory.Owned
@@ -1118,7 +1146,7 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.ownedCheck.Checked = true
 	}
 
-	// Condition
+	// Condition slider
 	formData.conditionSlider = widget.NewSlider(1, 5)
 	formData.conditionSlider.Step = 1
 	if existingAccessory != nil && existingAccessory.Condition != nil {
@@ -1132,7 +1160,7 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.conditionLabel.SetText(fmt.Sprintf("État: %d", int(value)))
 	}
 
-	// ========== Purchase Info ==========
+	// Purchase info fields
 	formData.purchaseDateEntry = widget.NewEntry()
 	formData.purchaseDateEntry.SetPlaceHolder("AAAA-MM-JJ")
 	if existingAccessory != nil && existingAccessory.PurchaseDate != nil {
@@ -1145,7 +1173,7 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.purchasePriceEntry.SetText(fmt.Sprintf("%.2f", *existingAccessory.PurchasePrice))
 	}
 
-	// ========== Notes ==========
+	// Notes field
 	formData.notesEntry = widget.NewMultiLineEntry()
 	formData.notesEntry.SetPlaceHolder("Notes")
 	formData.notesEntry.SetMinRowsVisible(3)
@@ -1153,7 +1181,7 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		formData.notesEntry.SetText(*existingAccessory.Notes)
 	}
 
-	// ========== Build Form Layout ==========
+	// Assemble form layout
 	formData.form = container.NewVBox(
 		widget.NewLabel("Nom *"),
 		formData.nameEntry,
@@ -1198,55 +1226,36 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 	return formData
 }
 
-// showAddAccessoryDialog shows the dialog to add a new accessory
 func showAddAccessoryDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	formData := buildAccessoryForm(w, conn, nil)
 
-	// Create dialog first (we'll need it for the close functionality)
 	var d dialog.Dialog
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() },
+		func() {
+			accessoryID, err := saveAccessory(conn, formData, 0)
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		accessoryID, err := saveAccessory(conn, formData, 0)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
+			// Save console relationships
+			for _, consoleID := range formData.selectedConsoleIDs {
+				conn.Exec(context.Background(),
+					"INSERT INTO accessory_consoles (accessory_id, console_id) VALUES ($1, $2)",
+					accessoryID, consoleID)
+			}
 
-		// Save console relationships
-		for _, consoleID := range formData.selectedConsoleIDs {
-			conn.Exec(context.Background(),
-				"INSERT INTO accessory_consoles (accessory_id, console_id) VALUES ($1, $2)",
-				accessoryID, consoleID)
-		}
-
-		dialog.ShowInformation("Ajouté", "Accessoire ajouté à la base de données.", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side, centered
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Ajouté", "Accessoire ajouté à la base de données.", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -1260,13 +1269,11 @@ func showAddAccessoryDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Ajouter un accessoire", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// showEditAccessoryDialog shows the dialog to edit an existing accessory
 func showEditAccessoryDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onSuccess func()) {
 	existingAccessory, err := getAccessoryByID(conn, accessoryID)
 	if err != nil {
@@ -1276,52 +1283,34 @@ func showEditAccessoryDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onS
 
 	formData := buildAccessoryForm(w, conn, existingAccessory)
 
-	// Create dialog first (we'll need it for the close functionality)
 	var d dialog.Dialog
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() },
+		func() {
+			_, err := saveAccessory(conn, formData, accessoryID)
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		_, err := saveAccessory(conn, formData, accessoryID)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
+			// Delete old and save new console relationships
+			conn.Exec(context.Background(), "DELETE FROM accessory_consoles WHERE accessory_id = $1", accessoryID)
+			for _, consoleID := range formData.selectedConsoleIDs {
+				conn.Exec(context.Background(),
+					"INSERT INTO accessory_consoles (accessory_id, console_id) VALUES ($1, $2)",
+					accessoryID, consoleID)
+			}
 
-		// Delete old console relationships and save new ones
-		conn.Exec(context.Background(), "DELETE FROM accessory_consoles WHERE accessory_id = $1", accessoryID)
-		for _, consoleID := range formData.selectedConsoleIDs {
-			conn.Exec(context.Background(),
-				"INSERT INTO accessory_consoles (accessory_id, console_id) VALUES ($1, $2)",
-				accessoryID, consoleID)
-		}
-
-		dialog.ShowInformation("Enregistré", "Accessoire mis à jour dans la base de données.", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side, centered
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Enregistré", "Accessoire mis à jour dans la base de données.", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -1335,15 +1324,14 @@ func showEditAccessoryDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onS
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Modifier un accessoire", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// saveAccessory saves or updates an accessory
+// saveAccessory inserts or updates an accessory (similar to saveGame pattern)
 func saveAccessory(conn *pgx.Conn, formData *accessoryFormData, accessoryID int) (int, error) {
-	// Validate
+	// Validate required fields
 	if formData.nameEntry.Text == "" {
 		return 0, fmt.Errorf("nom requis")
 	}
@@ -1351,7 +1339,7 @@ func saveAccessory(conn *pgx.Conn, formData *accessoryFormData, accessoryID int)
 		return 0, fmt.Errorf("type requis")
 	}
 
-	// Prepare data
+	// Convert dropdown selections to IDs
 	var typeID *int
 	if formData.typeSelect.Selected != "" {
 		id := formData.typeMap[formData.typeSelect.Selected]
@@ -1382,13 +1370,12 @@ func saveAccessory(conn *pgx.Conn, formData *accessoryFormData, accessoryID int)
 		condition = &c
 	}
 
-	// Parse purchase date
+	// Parse purchase info
 	var purchaseDate *string
 	if formData.purchaseDateEntry.Text != "" {
 		purchaseDate = &formData.purchaseDateEntry.Text
 	}
 
-	// Parse purchase price
 	var purchasePrice *float64
 	if formData.purchasePriceEntry.Text != "" {
 		var price float64
@@ -1396,13 +1383,12 @@ func saveAccessory(conn *pgx.Conn, formData *accessoryFormData, accessoryID int)
 		purchasePrice = &price
 	}
 
-	// Parse notes
 	var notes *string
 	if formData.notesEntry.Text != "" {
 		notes = &formData.notesEntry.Text
 	}
 
-	// INSERT or UPDATE
+	// Execute INSERT or UPDATE
 	if accessoryID == 0 {
 		// INSERT
 		query := `
@@ -1447,10 +1433,10 @@ func saveAccessory(conn *pgx.Conn, formData *accessoryFormData, accessoryID int)
 }
 
 // ========== CONSOLES CRUD ==========
+// Similar pattern to Games and Accessories
 
-// consoleFormData holds all the form fields for consoles
+// consoleFormData holds all form fields for console dialogs
 type consoleFormData struct {
-	// Form widgets
 	nameEntry          *widget.Entry
 	generationEntry    *widget.Entry
 	jpReleaseDateEntry *widget.Entry
@@ -1479,11 +1465,10 @@ type consoleFormData struct {
 	typeMap         map[string]int
 	manufacturerMap map[string]int
 
-	// The complete form container
 	form *fyne.Container
 }
 
-// buildConsoleForm creates the console form, optionally pre-populated
+// buildConsoleForm creates the console form (similar pattern to other build functions)
 func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *consoleFormData {
 	formData := &consoleFormData{
 		typeMap:         make(map[string]int),
@@ -1494,7 +1479,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 	types, _ := getConsoleTypes(conn)
 	manufacturers, _ := getManufacturers(conn)
 
-	// ========== Basic Info ==========
+	// Name field (required)
 	formData.nameEntry = widget.NewEntry()
 	formData.nameEntry.SetPlaceHolder("Plateforme (requis)")
 	if existingConsole != nil {
@@ -1533,14 +1518,14 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.manufacturerSelect.SetSelected(selectedManufacturerName)
 	}
 
-	// Generation
+	// Generation field
 	formData.generationEntry = widget.NewEntry()
 	formData.generationEntry.SetPlaceHolder("Génération")
 	if existingConsole != nil && existingConsole.Generation != nil {
 		formData.generationEntry.SetText(fmt.Sprintf("%d", *existingConsole.Generation))
 	}
 
-	// ========== Release Dates ==========
+	// Release date fields
 	formData.jpReleaseDateEntry = widget.NewEntry()
 	formData.jpReleaseDateEntry.SetPlaceHolder("AAAA-MM-JJ")
 	if existingConsole != nil && existingConsole.JPReleaseDate != nil {
@@ -1565,7 +1550,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.discontinuedEntry.SetText(existingConsole.Discontinued.Format("2006-01-02"))
 	}
 
-	// ========== Prices ==========
+	// Price fields
 	formData.priceUSDEntry = widget.NewEntry()
 	formData.priceUSDEntry.SetPlaceHolder("Prix de lancement ($)")
 	if existingConsole != nil && existingConsole.PriceUSD != nil {
@@ -1578,7 +1563,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.priceJPYEntry.SetText(fmt.Sprintf("%d", *existingConsole.PriceJPY))
 	}
 
-	// ========== Hardware Specs ==========
+	// Hardware specification fields
 	formData.controllersEntry = widget.NewEntry()
 	formData.controllersEntry.SetPlaceHolder("Ports contrôleurs")
 	if existingConsole != nil && existingConsole.Controllers != nil {
@@ -1609,7 +1594,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.audioEntry.SetText(*existingConsole.Audio)
 	}
 
-	// ========== Other Info ==========
+	// Sales & history fields
 	formData.unitsSoldEntry = widget.NewEntry()
 	formData.unitsSoldEntry.SetPlaceHolder("Nombre d'unités vendues")
 	if existingConsole != nil && existingConsole.UnitsSold != nil {
@@ -1629,12 +1614,12 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 	}
 
 	formData.successorEntry = widget.NewEntry()
-	formData.successorEntry.SetPlaceHolder("SSuccesseur")
+	formData.successorEntry.SetPlaceHolder("Successeur")
 	if existingConsole != nil && existingConsole.Successor != nil {
 		formData.successorEntry.SetText(*existingConsole.Successor)
 	}
 
-	// ========== Collection Info ==========
+	// Collection info fields
 	formData.ownedCheck = widget.NewCheck("Possédé", nil)
 	if existingConsole != nil {
 		formData.ownedCheck.Checked = existingConsole.Owned
@@ -1642,7 +1627,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.ownedCheck.Checked = true
 	}
 
-	// Condition
+	// Condition slider
 	formData.conditionSlider = widget.NewSlider(1, 5)
 	formData.conditionSlider.Step = 1
 	if existingConsole != nil && existingConsole.Condition != nil {
@@ -1656,7 +1641,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.conditionLabel.SetText(fmt.Sprintf("État: %d", int(value)))
 	}
 
-	// ========== Notes ==========
+	// Notes field
 	formData.notesEntry = widget.NewMultiLineEntry()
 	formData.notesEntry.SetPlaceHolder("Notes")
 	formData.notesEntry.SetMinRowsVisible(3)
@@ -1664,7 +1649,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 		formData.notesEntry.SetText(*existingConsole.Notes)
 	}
 
-	// ========== Build Form Layout ==========
+	// Assemble form layout
 	formData.form = container.NewVBox(
 		widget.NewLabel("Nom *"),
 		formData.nameEntry,
@@ -1711,7 +1696,7 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 
 		widget.NewSeparator(),
 		widget.NewLabel("Ventes & Histoire"),
-		widget.NewLabel("UUnités vendues:"),
+		widget.NewLabel("Unités vendues:"),
 		formData.unitsSoldEntry,
 		widget.NewLabel("Top ventes:"),
 		formData.topGameEntry,
@@ -1734,48 +1719,29 @@ func buildConsoleForm(w fyne.Window, conn *pgx.Conn, existingConsole *Console) *
 	return formData
 }
 
-// showAddConsoleDialog shows the dialog to add a new console
 func showAddConsoleDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	formData := buildConsoleForm(w, conn, nil)
 
-	// Create dialog first (we'll need it for the close functionality)
 	var d dialog.Dialog
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() },
+		func() {
+			_, err := saveConsole(conn, formData, 0)
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		_, err := saveConsole(conn, formData, 0)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-
-		dialog.ShowInformation("Enregistré", "Console ajoutée à la base de données.", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side, centered
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Enregistré", "Console ajoutée à la base de données.", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -1789,13 +1755,11 @@ func showAddConsoleDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Ajouter une console", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// showEditConsoleDialog shows the dialog to edit an existing console
 func showEditConsoleDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onSuccess func()) {
 	existingConsole, err := getConsoleByID(conn, consoleID)
 	if err != nil {
@@ -1805,44 +1769,26 @@ func showEditConsoleDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onSucce
 
 	formData := buildConsoleForm(w, conn, existingConsole)
 
-	// Create dialog first (we'll need it for the close functionality)
 	var d dialog.Dialog
 
-	// Create buttons side-by-side
-	cancelBtn := widget.NewButton("Annuler", func() {
-		d.Hide()
-	})
+	_, _, buttonBar := createDialogButtons(
+		func() { d.Hide() },
+		func() {
+			_, err := saveConsole(conn, formData, consoleID)
+			if err != nil {
+				dialog.ShowError(err, w)
+				return
+			}
 
-	saveBtn := widget.NewButton("Enregistrer", func() {
-		_, err := saveConsole(conn, formData, consoleID)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-
-		dialog.ShowInformation("Enregistré", "Console mise à jour dans la base de données.", w)
-		if onSuccess != nil {
-			onSuccess()
-		}
-		d.Hide()
-	})
-
-	saveBtn.Importance = widget.HighImportance
-
-	// Buttons side-by-side, centered
-	buttonBar := container.NewCenter(
-		container.NewHBox(
-			cancelBtn,
-			saveBtn,
-		),
+			dialog.ShowInformation("Enregistré", "Console mise à jour dans la base de données.", w)
+			if onSuccess != nil {
+				onSuccess()
+			}
+			d.Hide()
+		},
 	)
 
-	// Padding for scrollable areas
-	leftPadding := canvas.NewRectangle(color.Transparent)
-	leftPadding.SetMinSize(fyne.NewSize(40, 0))
-
-	rightPadding := canvas.NewRectangle(color.Transparent)
-	rightPadding.SetMinSize(fyne.NewSize(40, 0))
+	leftPadding, rightPadding := createDialogPadding()
 
 	paddedForm := container.NewBorder(
 		nil, nil,
@@ -1856,15 +1802,14 @@ func showEditConsoleDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onSucce
 		container.NewScroll(paddedForm),
 	)
 
-	// Create dialog without default buttons
 	d = dialog.NewCustomWithoutButtons("Modifier une console", formWithButtons, w)
 	d.Resize(fyne.NewSize(600, 700))
 	d.Show()
 }
 
-// saveConsole saves or updates a console
+// saveConsole inserts or updates a console (similar to saveGame pattern)
 func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int, error) {
-	// Validate
+	// Validate required fields
 	if formData.nameEntry.Text == "" {
 		return 0, fmt.Errorf("nom requis")
 	}
@@ -1875,7 +1820,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		return 0, fmt.Errorf("plateforme requise")
 	}
 
-	// Prepare data
+	// Convert dropdown selections to IDs
 	var typeID *int
 	if formData.typeSelect.Selected != "" {
 		id := formData.typeMap[formData.typeSelect.Selected]
@@ -1888,7 +1833,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		manufacturerID = &id
 	}
 
-	// Parse generation
+	// Parse numeric fields
 	var generation *int
 	if formData.generationEntry.Text != "" {
 		var gen int
@@ -1896,7 +1841,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		generation = &gen
 	}
 
-	// Parse dates
+	// Parse date fields
 	var jpReleaseDate, usReleaseDate, euReleaseDate, discontinued *string
 	if formData.jpReleaseDateEntry.Text != "" {
 		jpReleaseDate = &formData.jpReleaseDateEntry.Text
@@ -1911,7 +1856,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		discontinued = &formData.discontinuedEntry.Text
 	}
 
-	// Parse prices
+	// Parse price fields
 	var priceJPY, priceUSD *int
 	if formData.priceJPYEntry.Text != "" {
 		var price int
@@ -1924,7 +1869,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		priceUSD = &price
 	}
 
-	// Parse hardware specs
+	// Parse hardware spec fields
 	var controllers *int
 	if formData.controllersEntry.Text != "" {
 		var c int
@@ -1946,7 +1891,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		audio = &formData.audioEntry.Text
 	}
 
-	// Parse other info
+	// Parse sales & history fields
 	var unitsSold *int
 	if formData.unitsSoldEntry.Text != "" {
 		var units int
@@ -1978,7 +1923,7 @@ func saveConsole(conn *pgx.Conn, formData *consoleFormData, consoleID int) (int,
 		notes = &formData.notesEntry.Text
 	}
 
-	// INSERT or UPDATE
+	// Execute INSERT or UPDATE
 	if consoleID == 0 {
 		// INSERT
 		query := `
