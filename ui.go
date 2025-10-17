@@ -28,11 +28,11 @@ func conditionToStars(condition *int) string {
 
 // createActionButtons creates the Add/Edit/Delete button toolbar
 func createActionButtons(w fyne.Window, conn *pgx.Conn, entityType string, editBtn, deleteBtn *widget.Button, refreshFunc func()) fyne.CanvasObject {
-	addBtn := widget.NewButton("Add", func() {
+	addBtn := widget.NewButton("Ajouter", func() {
 		if entityType == "game" {
 			showAddGameDialog(w, conn, refreshFunc)
 		} else if entityType == "console" {
-			showAddConsoleDialog(w, conn, refreshFunc) // ← UPDATE THIS LINE
+			showAddConsoleDialog(w, conn, refreshFunc)
 		} else if entityType == "accessory" {
 			showAddAccessoryDialog(w, conn, refreshFunc)
 		}
@@ -118,7 +118,7 @@ func buildGamesTableWithSelection(games []Game, editBtn, deleteBtn *widget.Butto
 	return table
 }
 
-// buildConsolesTableWithSelection - UPDATE THE OLD buildConsolesTable
+// buildConsolesTableWithSelection - creates the consoles table and tracks selection
 func buildConsolesTableWithSelection(consoles []Console, editBtn, deleteBtn *widget.Button, selectedConsoleID *int) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
@@ -257,14 +257,14 @@ func buildAccessoriesTableWithSelection(accessories []Accessory, editBtn, delete
 func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func()) fyne.CanvasObject {
 	var selectedGameID int = -1 // Track which game is selected
 
-	editBtn := widget.NewButton("Edit", func() {
+	editBtn := widget.NewButton("Éditer", func() {
 		if selectedGameID == -1 {
 			return
 		}
 		showEditGameDialog(w, conn, selectedGameID, refreshFunc)
 	})
 
-	deleteBtn := widget.NewButton("Delete", func() {
+	deleteBtn := widget.NewButton("Supprimer", func() {
 		if selectedGameID == -1 {
 			return
 		}
@@ -313,14 +313,14 @@ func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func(
 func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refreshFunc func()) fyne.CanvasObject {
 	var selectedConsoleID int = -1
 
-	editBtn := widget.NewButton("Edit", func() {
+	editBtn := widget.NewButton("Éditer", func() {
 		if selectedConsoleID == -1 {
 			return
 		}
 		showEditConsoleDialog(w, conn, selectedConsoleID, refreshFunc)
 	})
 
-	deleteBtn := widget.NewButton("Delete", func() {
+	deleteBtn := widget.NewButton("Supprimer", func() {
 		if selectedConsoleID == -1 {
 			return
 		}
@@ -367,14 +367,14 @@ func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refresh
 func buildAccessoiresTab(w fyne.Window, conn *pgx.Conn, accessories []Accessory, refreshFunc func()) fyne.CanvasObject {
 	var selectedAccessoryID int = -1
 
-	editBtn := widget.NewButton("Edit", func() {
+	editBtn := widget.NewButton("Éditer", func() {
 		if selectedAccessoryID == -1 {
 			return
 		}
 		showEditAccessoryDialog(w, conn, selectedAccessoryID, refreshFunc)
 	})
 
-	deleteBtn := widget.NewButton("Delete", func() {
+	deleteBtn := widget.NewButton("Supprimer", func() {
 		if selectedAccessoryID == -1 {
 			return
 		}

@@ -22,7 +22,7 @@ func main() {
 	a := app.New()
 	w := a.NewWindow("VGC")
 
-	// Create sidebar with tabs (we'll update the content dynamically)
+	// Create sidebar with tabs
 	sidebar := container.NewAppTabs(
 		container.NewTabItem("Accueil", widget.NewLabel("Dashboard")),
 		container.NewTabItem("Jeux", widget.NewLabel("Loading...")),
@@ -34,7 +34,7 @@ func main() {
 	// Declare refresh functions as variables first
 	var refreshGamesTab func()
 	var refreshConsolesTab func()
-	var refreshAccessoriesTab func() // ← NEW: Add this line
+	var refreshAccessoriesTab func()
 
 	// Now define them
 	refreshGamesTab = func() {
@@ -57,7 +57,7 @@ func main() {
 		sidebar.Refresh()
 	}
 
-	// ← NEW: Add this entire function
+	// Refresh accessories tab
 	refreshAccessoriesTab = func() {
 		accessories, err := getAccessories(conn)
 		if err != nil {
@@ -71,7 +71,7 @@ func main() {
 	// Initial load of data
 	refreshGamesTab()
 	refreshConsolesTab()
-	refreshAccessoriesTab() // ← NEW: Add this line
+	refreshAccessoriesTab()
 
 	// Run app
 	w.SetContent(sidebar)
