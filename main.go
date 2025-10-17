@@ -58,7 +58,6 @@ func main() {
 		sidebar.Refresh()
 	}
 
-	// Refresh accessories tab
 	refreshAccessoriesTab = func() {
 		accessories, err := getAccessories(conn)
 		if err != nil {
