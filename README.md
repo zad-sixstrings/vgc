@@ -10,4 +10,4 @@ Kind of. I'm writing this app for my own usage, therefore the queries correspond
 Laziness.
 
 ## Why is the interface in French?
-I live in a French speaking area and most of my collection has either French or European editions of games and consoles. I therefore chose to make the UI in French. However, the code is commented in english and most variables and functions are in English as well.
+I live in a French speaking area and most of my collection has either French or European editions of games and consoles. I therefore chose to make the UI in French. However, the code is commented in English and most variables and functions are in English as well.
