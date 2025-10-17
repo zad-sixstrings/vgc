@@ -946,31 +946,6 @@ func buildAccessoryForm(w fyne.Window, conn *pgx.Conn, existingAccessory *Access
 		manufacturerMap: make(map[string]int),
 	}
 
-	// DEBUG: Check which database we're connected to
-	var dbName string
-	conn.QueryRow(context.Background(), "SELECT current_database()").Scan(&dbName)
-	fmt.Println("DEBUG: Connected to database:", dbName)
-
-	// DEBUG: Try a direct count query
-	var count int
-	conn.QueryRow(context.Background(), "SELECT COUNT(*) FROM accessory_types").Scan(&count)
-	fmt.Println("DEBUG: Row count in accessory_types:", count)
-
-	// DEBUG: Try selecting directly here
-	rows, err := conn.Query(context.Background(), "SELECT type_id, name FROM accessory_types")
-	if err != nil {
-		fmt.Println("DEBUG: Direct query error:", err)
-	} else {
-		defer rows.Close()
-		fmt.Println("DEBUG: Direct query succeeded, iterating...")
-		for rows.Next() {
-			var id int
-			var name string
-			rows.Scan(&id, &name)
-			fmt.Printf("DEBUG: Direct query row: %d - %s\n", id, name)
-		}
-	}
-
 	// Fetch lookup data
 	types, _ := getAccessoryTypes(conn)
 	manufacturers, _ := getManufacturers(conn)
