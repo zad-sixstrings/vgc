@@ -178,8 +178,15 @@ func getGameByID(conn *pgx.Conn, gameID int) (*Game, error) {
 	return &game, nil
 }
 
-// deleteGame deletes a game and all its relationships (cascades to junction tables)
+// deleteGame deletes a game and all its relationships from junction tables
 func deleteGame(conn *pgx.Conn, gameID int) error {
+	// Delete many-to-many relationships first (must be done before deleting the game)
+	conn.Exec(context.Background(), "DELETE FROM game_developers WHERE game_id = $1", gameID)
+	conn.Exec(context.Background(), "DELETE FROM game_composers WHERE game_id = $1", gameID)
+	conn.Exec(context.Background(), "DELETE FROM game_publishers WHERE game_id = $1", gameID)
+	conn.Exec(context.Background(), "DELETE FROM game_producers WHERE game_id = $1", gameID)
+
+	// Now delete the game itself
 	_, err := conn.Exec(context.Background(), "DELETE FROM games WHERE game_id = $1", gameID)
 	return err
 }
