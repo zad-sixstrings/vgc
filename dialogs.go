@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -40,6 +41,128 @@ func createDialogButtons(cancelFunc, saveFunc func()) (*widget.Button, *widget.B
 	)
 
 	return cancelBtn, saveBtn, buttonBar
+}
+
+// ========== AUTOCOMPLETE WIDGET ==========
+
+// createAutocompleteSelector creates a type-ahead selection interface
+// Returns: entry field and a container wrapping entry + suggestions list
+func createAutocompleteSelector(
+	w fyne.Window,
+	conn *pgx.Conn,
+	options []string,
+	nameToID map[string]int,
+	selectedItems *[]string,
+	selectedIDs *[]int,
+	displayLabel *widget.Label,
+	addNewDialog func(fyne.Window, *pgx.Conn, func()),
+	refreshCallback func() ([]string, map[string]int),
+) (*widget.Entry, *fyne.Container) {
+
+	// Entry field for typing
+	entry := widget.NewEntry()
+	entry.SetPlaceHolder("Taper pour rechercher...")
+
+	// List to show filtered suggestions
+	var filteredOptions []string
+
+	suggestionsList := widget.NewList(
+		func() int {
+			return len(filteredOptions)
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("Template")
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			obj.(*widget.Label).SetText(filteredOptions[id])
+		},
+	)
+
+	// Container for suggestions (hidden by default)
+	suggestionsContainer := container.NewMax(suggestionsList)
+	suggestionsContainer.Hide()
+
+	// Handle clicking a suggestion
+	suggestionsList.OnSelected = func(id widget.ListItemID) {
+		if id < len(filteredOptions) {
+			selected := filteredOptions[id]
+
+			// Add to selected items if not already there
+			if !contains(*selectedItems, selected) {
+				*selectedItems = append(*selectedItems, selected)
+				*selectedIDs = append(*selectedIDs, nameToID[selected])
+				displayLabel.SetText(formatList(*selectedItems))
+			}
+
+			// Clear entry and hide suggestions
+			entry.SetText("")
+			suggestionsContainer.Hide()
+		}
+	}
+
+	// Filter and show suggestions as user types
+	entry.OnChanged = func(text string) {
+		if text == "" {
+			suggestionsContainer.Hide()
+			filteredOptions = []string{}
+		} else {
+			// Filter options based on typed text
+			filteredOptions = []string{}
+			searchLower := strings.ToLower(text)
+
+			for _, opt := range options {
+				if strings.Contains(strings.ToLower(opt), searchLower) {
+					filteredOptions = append(filteredOptions, opt)
+				}
+			}
+
+			// Show suggestions if we have matches
+			if len(filteredOptions) > 0 {
+				suggestionsList.Refresh()
+				suggestionsContainer.Show()
+			} else {
+				suggestionsContainer.Hide()
+			}
+		}
+	}
+
+	// + New button - creates new entry with typed text
+	newBtn := widget.NewButton("+", func() {
+		typedText := strings.TrimSpace(entry.Text)
+		if typedText == "" {
+			return
+		}
+
+		// Show add dialog
+		addNewDialog(w, conn, func() {
+			// Refresh the options after adding
+			newOptions, newNameToID := refreshCallback()
+			options = newOptions
+			nameToID = newNameToID
+
+			// Auto-add the newly created item if it matches typed text
+			if id, exists := nameToID[typedText]; exists {
+				if !contains(*selectedItems, typedText) {
+					*selectedItems = append(*selectedItems, typedText)
+					*selectedIDs = append(*selectedIDs, id)
+					displayLabel.SetText(formatList(*selectedItems))
+				}
+			}
+
+			// Clear entry
+			entry.SetText("")
+			suggestionsContainer.Hide()
+		})
+	})
+
+	// Wrap entry, new button, and suggestions in a container
+	topRow := container.NewBorder(nil, nil, nil, newBtn, entry)
+	autocompleteWidget := container.NewVBox(
+		topRow,
+		suggestionsContainer,
+	)
+
+	return entry, autocompleteWidget
 }
 
 // ========== GAME FORM DATA STRUCTURE ==========
@@ -287,7 +410,6 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 	}
 
 	// ========== Many-to-Many: Developers ==========
-	// Build the developer selection interface with Add/Clear buttons
 
 	formData.developersList = widget.NewLabel("-")
 	developerOptions := []string{}
@@ -297,7 +419,7 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		developerNameToID[d.Name] = d.DeveloperID
 	}
 
-	// Pre-populate selected developers if editing
+	// Pre-populate if editing
 	if existingGame != nil {
 		formData.selectedDevelopers = existingGame.Developers
 		for _, name := range existingGame.Developers {
@@ -310,40 +432,31 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	}
 
-	developerSelect := widget.NewSelect(developerOptions, nil)
-	developerSelect.PlaceHolder = "Sélectionner développeur(s)"
+	// Create autocomplete widget
+	_, developerAutocomplete := createAutocompleteSelector(
+		w, conn,
+		developerOptions,
+		developerNameToID,
+		&formData.selectedDevelopers,
+		&formData.selectedDeveloperIDs,
+		formData.developersList,
+		showAddDeveloperDialog,
+		func() ([]string, map[string]int) {
+			developers, _ := getDevelopers(conn)
+			opts := []string{}
+			nameToID := make(map[string]int)
+			for _, d := range developers {
+				opts = append(opts, d.Name)
+				nameToID[d.Name] = d.DeveloperID
+			}
+			return opts, nameToID
+		},
+	)
 
-	// Add button - adds selected developer to the list
-	addDeveloperBtn := widget.NewButton("Ajouter", func() {
-		if developerSelect.Selected != "" && !contains(formData.selectedDevelopers, developerSelect.Selected) {
-			formData.selectedDevelopers = append(formData.selectedDevelopers, developerSelect.Selected)
-			formData.selectedDeveloperIDs = append(formData.selectedDeveloperIDs, developerNameToID[developerSelect.Selected])
-			formData.developersList.SetText(formatList(formData.selectedDevelopers))
-			developerSelect.SetSelected("")
-		}
-	})
-
-	// Clear button - removes all selected developers
 	clearDevelopersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedDevelopers = []string{}
 		formData.selectedDeveloperIDs = []int{}
 		formData.developersList.SetText("-")
-	})
-
-	// + New button - opens dialog to add a new developer to the database
-	newDeveloperBtn := widget.NewButton("+", func() {
-		showAddDeveloperDialog(w, conn, func() {
-			// Refresh developer list after adding new one
-			developers, _ = getDevelopers(conn)
-			developerOptions = []string{}
-			developerNameToID = make(map[string]int)
-			for _, d := range developers {
-				developerOptions = append(developerOptions, d.Name)
-				developerNameToID[d.Name] = d.DeveloperID
-			}
-			developerSelect.Options = developerOptions
-			developerSelect.Refresh()
-		})
 	})
 
 	// ========== Many-to-Many: Composers ==========
@@ -368,36 +481,30 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	}
 
-	composerSelect := widget.NewSelect(composerOptions, nil)
-	composerSelect.PlaceHolder = "Sélectionner compositeur(s)"
-
-	addComposerBtn := widget.NewButton("Ajouter", func() {
-		if composerSelect.Selected != "" && !contains(formData.selectedComposers, composerSelect.Selected) {
-			formData.selectedComposers = append(formData.selectedComposers, composerSelect.Selected)
-			formData.selectedComposerIDs = append(formData.selectedComposerIDs, composerNameToID[composerSelect.Selected])
-			formData.composersList.SetText(formatList(formData.selectedComposers))
-			composerSelect.SetSelected("")
-		}
-	})
+	_, composerAutocomplete := createAutocompleteSelector(
+		w, conn,
+		composerOptions,
+		composerNameToID,
+		&formData.selectedComposers,
+		&formData.selectedComposerIDs,
+		formData.composersList,
+		showAddComposerDialog,
+		func() ([]string, map[string]int) {
+			composers, _ := getComposers(conn)
+			opts := []string{}
+			nameToID := make(map[string]int)
+			for _, c := range composers {
+				opts = append(opts, c.Name)
+				nameToID[c.Name] = c.ComposerID
+			}
+			return opts, nameToID
+		},
+	)
 
 	clearComposersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedComposers = []string{}
 		formData.selectedComposerIDs = []int{}
-		formData.composersList.SetText("-") // Fixed: was "." instead of "-"
-	})
-
-	newComposerBtn := widget.NewButton("+", func() {
-		showAddComposerDialog(w, conn, func() {
-			composers, _ = getComposers(conn)
-			composerOptions = []string{}
-			composerNameToID = make(map[string]int)
-			for _, c := range composers {
-				composerOptions = append(composerOptions, c.Name)
-				composerNameToID[c.Name] = c.ComposerID
-			}
-			composerSelect.Options = composerOptions
-			composerSelect.Refresh()
-		})
+		formData.composersList.SetText("-")
 	})
 
 	// ========== Many-to-Many: Publishers ==========
@@ -422,36 +529,30 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	}
 
-	publisherSelect := widget.NewSelect(publisherOptions, nil)
-	publisherSelect.PlaceHolder = "Sélectionner distributeur"
-
-	addPublisherBtn := widget.NewButton("Ajouter", func() {
-		if publisherSelect.Selected != "" && !contains(formData.selectedPublishers, publisherSelect.Selected) {
-			formData.selectedPublishers = append(formData.selectedPublishers, publisherSelect.Selected)
-			formData.selectedPublisherIDs = append(formData.selectedPublisherIDs, publisherNameToID[publisherSelect.Selected])
-			formData.publishersList.SetText(formatList(formData.selectedPublishers))
-			publisherSelect.SetSelected("")
-		}
-	})
+	_, publisherAutocomplete := createAutocompleteSelector(
+		w, conn,
+		publisherOptions,
+		publisherNameToID,
+		&formData.selectedPublishers,
+		&formData.selectedPublisherIDs,
+		formData.publishersList,
+		showAddPublisherDialog,
+		func() ([]string, map[string]int) {
+			publishers, _ := getPublishers(conn)
+			opts := []string{}
+			nameToID := make(map[string]int)
+			for _, p := range publishers {
+				opts = append(opts, p.Name)
+				nameToID[p.Name] = p.PublisherID
+			}
+			return opts, nameToID
+		},
+	)
 
 	clearPublishersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedPublishers = []string{}
 		formData.selectedPublisherIDs = []int{}
 		formData.publishersList.SetText("-")
-	})
-
-	newPublisherBtn := widget.NewButton("+", func() {
-		showAddPublisherDialog(w, conn, func() {
-			publishers, _ = getPublishers(conn)
-			publisherOptions = []string{}
-			publisherNameToID = make(map[string]int)
-			for _, p := range publishers {
-				publisherOptions = append(publisherOptions, p.Name)
-				publisherNameToID[p.Name] = p.PublisherID
-			}
-			publisherSelect.Options = publisherOptions
-			publisherSelect.Refresh()
-		})
 	})
 
 	// ========== Many-to-Many: Producers ==========
@@ -476,36 +577,30 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 		}
 	}
 
-	producerSelect := widget.NewSelect(producerOptions, nil)
-	producerSelect.PlaceHolder = "Sélectionner producteur"
-
-	addProducerBtn := widget.NewButton("Ajouter", func() {
-		if producerSelect.Selected != "" && !contains(formData.selectedProducers, producerSelect.Selected) {
-			formData.selectedProducers = append(formData.selectedProducers, producerSelect.Selected)
-			formData.selectedProducerIDs = append(formData.selectedProducerIDs, producerNameToID[producerSelect.Selected])
-			formData.producersList.SetText(formatList(formData.selectedProducers))
-			producerSelect.SetSelected("")
-		}
-	})
+	_, producerAutocomplete := createAutocompleteSelector(
+		w, conn,
+		producerOptions,
+		producerNameToID,
+		&formData.selectedProducers,
+		&formData.selectedProducerIDs,
+		formData.producersList,
+		showAddProducerDialog,
+		func() ([]string, map[string]int) {
+			producers, _ := getProducers(conn)
+			opts := []string{}
+			nameToID := make(map[string]int)
+			for _, p := range producers {
+				opts = append(opts, p.Name)
+				nameToID[p.Name] = p.ProducerID
+			}
+			return opts, nameToID
+		},
+	)
 
 	clearProducersBtn := widget.NewButton("Effacer", func() {
 		formData.selectedProducers = []string{}
 		formData.selectedProducerIDs = []int{}
 		formData.producersList.SetText("-")
-	})
-
-	newProducerBtn := widget.NewButton("+", func() {
-		showAddProducerDialog(w, conn, func() {
-			producers, _ = getProducers(conn)
-			producerOptions = []string{}
-			producerNameToID = make(map[string]int)
-			for _, p := range producers {
-				producerOptions = append(producerOptions, p.Name)
-				producerNameToID[p.Name] = p.ProducerID
-			}
-			producerSelect.Options = producerOptions
-			producerSelect.Refresh()
-		})
 	})
 
 	// ========== Assemble Form Layout ==========
@@ -540,25 +635,25 @@ func buildGameForm(w fyne.Window, conn *pgx.Conn, existingGame *Game) *gameFormD
 
 		widget.NewSeparator(),
 		widget.NewLabel("Développeur(s)"),
-		container.NewBorder(nil, nil, nil, container.NewHBox(addDeveloperBtn, newDeveloperBtn), developerSelect),
+		developerAutocomplete,
 		formData.developersList,
 		clearDevelopersBtn,
 
 		widget.NewSeparator(),
 		widget.NewLabel("Compositeur(s)"),
-		container.NewBorder(nil, nil, nil, container.NewHBox(addComposerBtn, newComposerBtn), composerSelect),
+		composerAutocomplete,
 		formData.composersList,
 		clearComposersBtn,
 
 		widget.NewSeparator(),
 		widget.NewLabel("Distributeur(s)"),
-		container.NewBorder(nil, nil, nil, container.NewHBox(addPublisherBtn, newPublisherBtn), publisherSelect),
+		publisherAutocomplete,
 		formData.publishersList,
 		clearPublishersBtn,
 
 		widget.NewSeparator(),
 		widget.NewLabel("Producteur(s)"),
-		container.NewBorder(nil, nil, nil, container.NewHBox(addProducerBtn, newProducerBtn), producerSelect),
+		producerAutocomplete,
 		formData.producersList,
 		clearProducersBtn,
 
