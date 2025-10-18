@@ -1097,6 +1097,354 @@ func showAddProducerDialog(w fyne.Window, conn *pgx.Conn, onSuccess func()) {
 	d.Show()
 }
 
+// ========== DETAIL VIEW DIALOGS ==========
+// These dialogs display all information about an item in a read-only card format
+
+// showGameDetailDialog displays all game information in a read-only view
+func showGameDetailDialog(w fyne.Window, conn *pgx.Conn, gameID int, onEdit func()) {
+	// Fetch game data
+	game, err := getGameByID(conn, gameID)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("échec de chargement: %w", err), w)
+		return
+	}
+
+	// Build detail content with all fields
+	var content []fyne.CanvasObject
+
+	// Title
+	content = append(content,
+		widget.NewLabelWithStyle(game.Title, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+	)
+
+	// Basic Info
+	content = append(content, widget.NewLabel("Informations générales"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Plateforme: %s", game.ConsoleName)))
+	if game.GenreName != "" {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Genre: %s", game.GenreName)))
+	}
+
+	// Release Dates
+	if game.EUReleaseDate != nil || game.USReleaseDate != nil || game.JPReleaseDate != nil {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Dates de sortie"))
+		if game.EUReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Europe: %s", game.EUReleaseDate.Format("2006-01-02"))))
+		}
+		if game.USReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("USA: %s", game.USReleaseDate.Format("2006-01-02"))))
+		}
+		if game.JPReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Japon: %s", game.JPReleaseDate.Format("2006-01-02"))))
+		}
+	}
+
+	// Ratings - would need to fetch rating details if you want to display them
+	// For now, skipping as we'd need the full rating data
+
+	// Sales
+	if game.UnitsSold != nil {
+		content = append(content, widget.NewSeparator())
+		content = append(content, widget.NewLabel(fmt.Sprintf("Copies vendues: %d", *game.UnitsSold)))
+	}
+
+	// Credits
+	if len(game.Developers) > 0 {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Développeur(s)"))
+		content = append(content, widget.NewLabel(strings.Join(game.Developers, ", ")))
+	}
+	if len(game.Composers) > 0 {
+		content = append(content, widget.NewLabel("Compositeur(s)"))
+		content = append(content, widget.NewLabel(strings.Join(game.Composers, ", ")))
+	}
+	if len(game.Publishers) > 0 {
+		content = append(content, widget.NewLabel("Distributeur(s)"))
+		content = append(content, widget.NewLabel(strings.Join(game.Publishers, ", ")))
+	}
+	if len(game.Producers) > 0 {
+		content = append(content, widget.NewLabel("Producteur(s)"))
+		content = append(content, widget.NewLabel(strings.Join(game.Producers, ", ")))
+	}
+
+	// Collection Info
+	content = append(content, widget.NewSeparator(), widget.NewLabel("Collection"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Possédé: %v", game.Owned)))
+	if game.BoxOwned != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Boîte possédée: %v", *game.BoxOwned)))
+	}
+	if game.Collector != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Édition collector: %v", *game.Collector)))
+	}
+	if game.Condition != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("État: %s", conditionToStars(game.Condition))))
+	}
+
+	// Purchase Info
+	if game.PurchaseDate != nil || game.PurchasePrice != nil {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Achat"))
+		if game.PurchaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Date: %s", game.PurchaseDate.Format("2006-01-02"))))
+		}
+		if game.PurchasePrice != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Prix: %.2f", *game.PurchasePrice)))
+		}
+	}
+
+	// Notes
+	if game.Notes != nil && *game.Notes != "" {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Notes"))
+		notesLabel := widget.NewLabel(*game.Notes)
+		notesLabel.Wrapping = fyne.TextWrapWord
+		content = append(content, notesLabel)
+	}
+
+	// Create scrollable content
+	scrollContent := container.NewVBox(content...)
+	scroll := container.NewScroll(scrollContent)
+
+	// Buttons
+	editBtn := widget.NewButton("Éditer", func() {
+		if onEdit != nil {
+			onEdit()
+		}
+	})
+	editBtn.Importance = widget.HighImportance
+
+	closeBtn := widget.NewButton("Fermer", func() {})
+
+	buttonBar := container.NewCenter(container.NewHBox(editBtn, closeBtn))
+
+	// Assemble dialog
+	dialogContent := container.NewBorder(nil, buttonBar, nil, nil, scroll)
+
+	d := dialog.NewCustomWithoutButtons(game.Title, dialogContent, w)
+	d.Resize(fyne.NewSize(500, 600))
+
+	// Wire up close button
+	closeBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Show()
+}
+
+// showConsoleDetailDialog displays all console information in a read-only view
+func showConsoleDetailDialog(w fyne.Window, conn *pgx.Conn, consoleID int, onEdit func()) {
+	console, err := getConsoleByID(conn, consoleID)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("échec de chargement: %w", err), w)
+		return
+	}
+
+	var content []fyne.CanvasObject
+
+	// Title
+	content = append(content,
+		widget.NewLabelWithStyle(console.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+	)
+
+	// Basic Info
+	content = append(content, widget.NewLabel("Informations générales"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Type: %s", console.TypeName)))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Fabricant: %s", console.ManufacturerName)))
+	if console.Generation != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Génération: %d", *console.Generation)))
+	}
+
+	// Release Dates
+	if console.EUReleaseDate != nil || console.USReleaseDate != nil || console.JPReleaseDate != nil {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Dates"))
+		if console.EUReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Sortie Europe: %s", console.EUReleaseDate.Format("2006-01-02"))))
+		}
+		if console.USReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Sortie USA: %s", console.USReleaseDate.Format("2006-01-02"))))
+		}
+		if console.JPReleaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Sortie Japon: %s", console.JPReleaseDate.Format("2006-01-02"))))
+		}
+		if console.Discontinued != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Fin de production: %s", console.Discontinued.Format("2006-01-02"))))
+		}
+	}
+
+	// Prices
+	if console.PriceUSD != nil || console.PriceJPY != nil {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Prix de lancement"))
+		if console.PriceUSD != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("USA: $%d", *console.PriceUSD)))
+		}
+		if console.PriceJPY != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Japon: ¥%d", *console.PriceJPY)))
+		}
+	}
+
+	// Hardware
+	hasHardware := console.Controllers != nil || console.CPU != nil || console.GPU != nil ||
+		console.Memory != nil || console.Audio != nil
+	if hasHardware {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Caractéristiques techniques"))
+		if console.Controllers != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Ports contrôleurs: %d", *console.Controllers)))
+		}
+		if console.CPU != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("CPU: %s", *console.CPU)))
+		}
+		if console.GPU != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("GPU: %s", *console.GPU)))
+		}
+		if console.Memory != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Mémoire: %s", *console.Memory)))
+		}
+		if console.Audio != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Audio: %s", *console.Audio)))
+		}
+	}
+
+	// Sales & History
+	hasHistory := console.UnitsSold != nil || console.TopGame != nil ||
+		console.Predecessor != nil || console.Successor != nil
+	if hasHistory {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Ventes & Histoire"))
+		if console.UnitsSold != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Unités vendues: %d", *console.UnitsSold)))
+		}
+		if console.TopGame != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Top vente: %s", *console.TopGame)))
+		}
+		if console.Predecessor != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Prédécesseur: %s", *console.Predecessor)))
+		}
+		if console.Successor != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Successeur: %s", *console.Successor)))
+		}
+	}
+
+	// Collection Info
+	content = append(content, widget.NewSeparator(), widget.NewLabel("Collection"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Possédé: %v", console.Owned)))
+	if console.Condition != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("État: %s", conditionToStars(console.Condition))))
+	}
+
+	// Notes
+	if console.Notes != nil && *console.Notes != "" {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Notes"))
+		notesLabel := widget.NewLabel(*console.Notes)
+		notesLabel.Wrapping = fyne.TextWrapWord
+		content = append(content, notesLabel)
+	}
+
+	scrollContent := container.NewVBox(content...)
+	scroll := container.NewScroll(scrollContent)
+
+	editBtn := widget.NewButton("Éditer", func() {
+		if onEdit != nil {
+			onEdit()
+		}
+	})
+	editBtn.Importance = widget.HighImportance
+
+	closeBtn := widget.NewButton("Fermer", func() {})
+	buttonBar := container.NewCenter(container.NewHBox(editBtn, closeBtn))
+
+	dialogContent := container.NewBorder(nil, buttonBar, nil, nil, scroll)
+
+	d := dialog.NewCustomWithoutButtons(console.Name, dialogContent, w)
+	d.Resize(fyne.NewSize(500, 600))
+
+	closeBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Show()
+}
+
+// showAccessoryDetailDialog displays all accessory information in a read-only view
+func showAccessoryDetailDialog(w fyne.Window, conn *pgx.Conn, accessoryID int, onEdit func()) {
+	accessory, err := getAccessoryByID(conn, accessoryID)
+	if err != nil {
+		dialog.ShowError(fmt.Errorf("échec de chargement: %w", err), w)
+		return
+	}
+
+	var content []fyne.CanvasObject
+
+	// Title
+	content = append(content,
+		widget.NewLabelWithStyle(accessory.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewSeparator(),
+	)
+
+	// Basic Info
+	content = append(content, widget.NewLabel("Informations générales"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Type: %s", accessory.TypeName)))
+	if accessory.ManufacturerName != "" {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Fabricant: %s", accessory.ManufacturerName)))
+	}
+	if accessory.Color != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("Couleur: %s", *accessory.Color)))
+	}
+	content = append(content, widget.NewLabel(fmt.Sprintf("Quantité: %d", accessory.Quantity)))
+
+	// Compatible Consoles
+	if len(accessory.Consoles) > 0 {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Plateformes compatibles"))
+		content = append(content, widget.NewLabel(strings.Join(accessory.Consoles, ", ")))
+	}
+
+	// Collection Info
+	content = append(content, widget.NewSeparator(), widget.NewLabel("Collection"))
+	content = append(content, widget.NewLabel(fmt.Sprintf("Possédé: %v", accessory.Owned)))
+	if accessory.Condition != nil {
+		content = append(content, widget.NewLabel(fmt.Sprintf("État: %s", conditionToStars(accessory.Condition))))
+	}
+
+	// Purchase Info
+	if accessory.PurchaseDate != nil || accessory.PurchasePrice != nil {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Achat"))
+		if accessory.PurchaseDate != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Date: %s", accessory.PurchaseDate.Format("2006-01-02"))))
+		}
+		if accessory.PurchasePrice != nil {
+			content = append(content, widget.NewLabel(fmt.Sprintf("Prix: %.2f", *accessory.PurchasePrice)))
+		}
+	}
+
+	// Notes
+	if accessory.Notes != nil && *accessory.Notes != "" {
+		content = append(content, widget.NewSeparator(), widget.NewLabel("Notes"))
+		notesLabel := widget.NewLabel(*accessory.Notes)
+		notesLabel.Wrapping = fyne.TextWrapWord
+		content = append(content, notesLabel)
+	}
+
+	scrollContent := container.NewVBox(content...)
+	scroll := container.NewScroll(scrollContent)
+
+	editBtn := widget.NewButton("Éditer", func() {
+		if onEdit != nil {
+			onEdit()
+		}
+	})
+	editBtn.Importance = widget.HighImportance
+
+	closeBtn := widget.NewButton("Fermer", func() {})
+	buttonBar := container.NewCenter(container.NewHBox(editBtn, closeBtn))
+
+	dialogContent := container.NewBorder(nil, buttonBar, nil, nil, scroll)
+
+	d := dialog.NewCustomWithoutButtons(accessory.Name, dialogContent, w)
+	d.Resize(fyne.NewSize(500, 600))
+
+	closeBtn.OnTapped = func() {
+		d.Hide()
+	}
+
+	d.Show()
+}
+
 // ========== ACCESSORIES CRUD ==========
 // Similar pattern to Games - form data structure, build form, show/edit/save dialogs
 
