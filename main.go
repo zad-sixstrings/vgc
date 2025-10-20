@@ -21,11 +21,11 @@ func main() {
 	// Create app
 	a := app.New()
 	a.Settings().SetTheme(&compactTheme{})
-	w := a.NewWindow("VGC")
+	w := a.NewWindow("VGC - Video Game Collector")
 
 	// Create sidebar with tabs
 	sidebar := container.NewAppTabs(
-		container.NewTabItem("Accueil", widget.NewLabel("Dashboard")),
+		container.NewTabItem("Accueil", widget.NewLabel("Dashboard - coming soon!")),
 		container.NewTabItem("Jeux", widget.NewLabel("Loading...")),
 		container.NewTabItem("Consoles", widget.NewLabel("Loading...")),
 		container.NewTabItem("Accessoires", widget.NewLabel("Loading...")),
@@ -75,6 +75,6 @@ func main() {
 
 	// Run app
 	w.SetContent(sidebar)
-	w.Resize(fyne.NewSize(1800, 900))
+	w.Resize(fyne.NewSize(1400, 900))
 	w.ShowAndRun()
 }

@@ -24,7 +24,7 @@ func newTappableLabel(onRightClick func(pos fyne.Position)) *tappableLabel {
 	label := &tappableLabel{
 		onRightClick: onRightClick,
 	}
-	label.ExtendBaseWidget(label)
+
 	return label
 }
 
