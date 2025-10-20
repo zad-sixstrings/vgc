@@ -11,30 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ========== CUSTOM TAPPABLE LABEL FOR CONTEXT MENU ==========
-
-// tappableLabel is a label that can detect right-clicks for context menus
-type tappableLabel struct {
-	widget.Label
-	onRightClick func(pos fyne.Position)
-}
-
-// newTappableLabel creates a label that supports right-click
-func newTappableLabel(onRightClick func(pos fyne.Position)) *tappableLabel {
-	label := &tappableLabel{
-		onRightClick: onRightClick,
-	}
-
-	return label
-}
-
-// TappedSecondary handles right-click events
-func (t *tappableLabel) TappedSecondary(ev *fyne.PointEvent) {
-	if t.onRightClick != nil {
-		t.onRightClick(ev.AbsolutePosition)
-	}
-}
-
 // ========== UTILITY FUNCTIONS ==========
 
 // Condition as stars notation
@@ -71,8 +47,8 @@ func createSearchBar(placeholder string, onSearch func(searchText string)) *fyne
 
 // ========== ACTION BUTTONS ==========
 
-// createActionButtons creates the Add/Edit/Delete button toolbar
-func createActionButtons(w fyne.Window, conn *pgx.Conn, entityType string, editBtn, deleteBtn *widget.Button, refreshFunc func()) fyne.CanvasObject {
+// createActionButtons creates the Add/Details/Edit/Delete button toolbar
+func createActionButtons(w fyne.Window, conn *pgx.Conn, entityType string, detailsBtn, editBtn, deleteBtn *widget.Button, refreshFunc func()) fyne.CanvasObject {
 	addBtn := widget.NewButton("Ajouter", func() {
 		if entityType == "game" {
 			showAddGameDialog(w, conn, refreshFunc)
@@ -85,15 +61,18 @@ func createActionButtons(w fyne.Window, conn *pgx.Conn, entityType string, editB
 
 	// Style buttons with colors
 	addBtn.Importance = widget.SuccessImportance   // Green
+	detailsBtn.Importance = widget.HighImportance  // Blue
 	editBtn.Importance = widget.WarningImportance  // Yellow/Orange
 	deleteBtn.Importance = widget.DangerImportance // Red
 
-	// Start with Edit and Delete disabled
+	// Start with Details, Edit and Delete disabled
+	detailsBtn.Disable()
 	editBtn.Disable()
 	deleteBtn.Disable()
 
 	return container.NewHBox(
 		addBtn,
+		detailsBtn,
 		editBtn,
 		deleteBtn,
 	)
@@ -102,20 +81,18 @@ func createActionButtons(w fyne.Window, conn *pgx.Conn, entityType string, editB
 // ========== TABLE BUILDERS ==========
 
 // buildGamesTableWithSelection creates the games table and tracks selection
-func buildGamesTableWithSelection(w fyne.Window, conn *pgx.Conn, games []Game, editBtn, deleteBtn *widget.Button, selectedGameID *int, refreshFunc func()) *widget.Table {
+func buildGamesTableWithSelection(w fyne.Window, conn *pgx.Conn, games []Game, detailsBtn, editBtn, deleteBtn *widget.Button, selectedGameID *int, refreshFunc func()) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
 			return len(games), 5
 		},
 		func() fyne.CanvasObject {
-			// Create tappable label with right-click handler
-			return newTappableLabel(nil)
+			return widget.NewLabel("")
 		},
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			label := obj.(*tappableLabel)
+			label := obj.(*widget.Label)
 			game := games[id.Row]
 
-			// Update label text
 			switch id.Col {
 			case 0:
 				label.SetText(fmt.Sprintf("%d", game.GameID))
@@ -128,92 +105,51 @@ func buildGamesTableWithSelection(w fyne.Window, conn *pgx.Conn, games []Game, e
 			case 4:
 				label.SetText(conditionToStars(game.Condition))
 			}
-
-			// Set up right-click handler for this cell
-			label.onRightClick = func(pos fyne.Position) {
-				// Create context menu
-				detailsItem := fyne.NewMenuItem("Détails", func() {
-					showGameDetailDialog(w, conn, game.GameID, func() {
-						showEditGameDialog(w, conn, game.GameID, refreshFunc)
-					})
-				})
-
-				editItem := fyne.NewMenuItem("Éditer", func() {
-					showEditGameDialog(w, conn, game.GameID, refreshFunc)
-				})
-
-				deleteItem := fyne.NewMenuItem("Supprimer", func() {
-					dialog.NewConfirm(
-						"Supprimer le jeu",
-						fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", game.Title),
-						func(confirmed bool) {
-							if confirmed {
-								err := deleteGame(conn, game.GameID)
-								if err != nil {
-									dialog.ShowError(fmt.Errorf("échec de suppression: %w", err), w)
-									return
-								}
-								dialog.ShowInformation("Succès", "Jeu supprimé avec succès!", w)
-								refreshFunc()
-							}
-						},
-						w,
-					).Show()
-				})
-
-				// Create and show popup menu
-				menu := fyne.NewMenu("", detailsItem, editItem, deleteItem)
-				popup := widget.NewPopUpMenu(menu, w.Canvas())
-				popup.ShowAtPosition(pos)
-			}
 		},
 	)
 
-	// Custom headers
 	table.UpdateHeader = func(id widget.TableCellID, obj fyne.CanvasObject) {
 		label := obj.(*widget.Label)
 		headers := []string{"ID", "Titre", "Plateforme", "Genre", "État"}
 		label.SetText(headers[id.Col])
 	}
 
-	// Handle row selection
 	table.OnSelected = func(id widget.TableCellID) {
 		*selectedGameID = games[id.Row].GameID
 		fmt.Printf("Selected game: %s (ID: %d)\n", games[id.Row].Title, *selectedGameID)
+		detailsBtn.Enable()
 		editBtn.Enable()
 		deleteBtn.Enable()
 	}
 
-	// Handle deselection
 	table.OnUnselected = func(id widget.TableCellID) {
 		*selectedGameID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 	}
 
-	// Column widths
 	table.SetColumnWidth(0, 50)
 	table.SetColumnWidth(1, 400)
 	table.SetColumnWidth(2, 400)
 	table.SetColumnWidth(3, 200)
 	table.SetColumnWidth(4, 50)
-
 	table.ShowHeaderColumn = false
 
 	return table
 }
 
 // buildConsolesTableWithSelection creates the consoles table and tracks selection
-func buildConsolesTableWithSelection(w fyne.Window, conn *pgx.Conn, consoles []Console, editBtn, deleteBtn *widget.Button, selectedConsoleID *int, refreshFunc func()) *widget.Table {
+func buildConsolesTableWithSelection(w fyne.Window, conn *pgx.Conn, consoles []Console, detailsBtn, editBtn, deleteBtn *widget.Button, selectedConsoleID *int, refreshFunc func()) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
 			return len(consoles), 5
 		},
 		func() fyne.CanvasObject {
-			return newTappableLabel(nil)
+			return widget.NewLabel("")
 		},
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			label := obj.(*tappableLabel)
+			label := obj.(*widget.Label)
 			console := consoles[id.Row]
 
 			switch id.Col {
@@ -232,41 +168,6 @@ func buildConsolesTableWithSelection(w fyne.Window, conn *pgx.Conn, consoles []C
 			case 4:
 				label.SetText(conditionToStars(console.Condition))
 			}
-
-			label.onRightClick = func(pos fyne.Position) {
-				detailsItem := fyne.NewMenuItem("Détails", func() {
-					showConsoleDetailDialog(w, conn, console.ConsoleID, func() {
-						showEditConsoleDialog(w, conn, console.ConsoleID, refreshFunc)
-					})
-				})
-
-				editItem := fyne.NewMenuItem("Éditer", func() {
-					showEditConsoleDialog(w, conn, console.ConsoleID, refreshFunc)
-				})
-
-				deleteItem := fyne.NewMenuItem("Supprimer", func() {
-					dialog.NewConfirm(
-						"Supprimer la console",
-						fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", console.Name),
-						func(confirmed bool) {
-							if confirmed {
-								err := deleteConsole(conn, console.ConsoleID)
-								if err != nil {
-									dialog.ShowError(fmt.Errorf("échec de suppression: %w", err), w)
-									return
-								}
-								dialog.ShowInformation("Succès", "Console supprimée avec succès!", w)
-								refreshFunc()
-							}
-						},
-						w,
-					).Show()
-				})
-
-				menu := fyne.NewMenu("", detailsItem, editItem, deleteItem)
-				popup := widget.NewPopUpMenu(menu, w.Canvas())
-				popup.ShowAtPosition(pos)
-			}
 		},
 	)
 
@@ -279,12 +180,14 @@ func buildConsolesTableWithSelection(w fyne.Window, conn *pgx.Conn, consoles []C
 	table.OnSelected = func(id widget.TableCellID) {
 		*selectedConsoleID = consoles[id.Row].ConsoleID
 		fmt.Printf("Selected console: %s (ID: %d)\n", consoles[id.Row].Name, *selectedConsoleID)
+		detailsBtn.Enable()
 		editBtn.Enable()
 		deleteBtn.Enable()
 	}
 
 	table.OnUnselected = func(id widget.TableCellID) {
 		*selectedConsoleID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 	}
@@ -294,23 +197,22 @@ func buildConsolesTableWithSelection(w fyne.Window, conn *pgx.Conn, consoles []C
 	table.SetColumnWidth(2, 300)
 	table.SetColumnWidth(3, 50)
 	table.SetColumnWidth(4, 100)
-
 	table.ShowHeaderColumn = false
 
 	return table
 }
 
 // buildAccessoriesTableWithSelection creates the accessories table and tracks selection
-func buildAccessoriesTableWithSelection(w fyne.Window, conn *pgx.Conn, accessories []Accessory, editBtn, deleteBtn *widget.Button, selectedAccessoryID *int, refreshFunc func()) *widget.Table {
+func buildAccessoriesTableWithSelection(w fyne.Window, conn *pgx.Conn, accessories []Accessory, detailsBtn, editBtn, deleteBtn *widget.Button, selectedAccessoryID *int, refreshFunc func()) *widget.Table {
 	table := widget.NewTableWithHeaders(
 		func() (int, int) {
 			return len(accessories), 6
 		},
 		func() fyne.CanvasObject {
-			return newTappableLabel(nil)
+			return widget.NewLabel("")
 		},
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			label := obj.(*tappableLabel)
+			label := obj.(*widget.Label)
 			accessory := accessories[id.Row]
 
 			switch id.Col {
@@ -331,41 +233,6 @@ func buildAccessoriesTableWithSelection(w fyne.Window, conn *pgx.Conn, accessori
 			case 5:
 				label.SetText(conditionToStars(accessory.Condition))
 			}
-
-			label.onRightClick = func(pos fyne.Position) {
-				detailsItem := fyne.NewMenuItem("Détails", func() {
-					showAccessoryDetailDialog(w, conn, accessory.AccessoryID, func() {
-						showEditAccessoryDialog(w, conn, accessory.AccessoryID, refreshFunc)
-					})
-				})
-
-				editItem := fyne.NewMenuItem("Éditer", func() {
-					showEditAccessoryDialog(w, conn, accessory.AccessoryID, refreshFunc)
-				})
-
-				deleteItem := fyne.NewMenuItem("Supprimer", func() {
-					dialog.NewConfirm(
-						"Supprimer l'accessoire",
-						fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", accessory.Name),
-						func(confirmed bool) {
-							if confirmed {
-								err := deleteAccessory(conn, accessory.AccessoryID)
-								if err != nil {
-									dialog.ShowError(fmt.Errorf("échec de suppression: %w", err), w)
-									return
-								}
-								dialog.ShowInformation("Succès", "Accessoire supprimé avec succès!", w)
-								refreshFunc()
-							}
-						},
-						w,
-					).Show()
-				})
-
-				menu := fyne.NewMenu("", detailsItem, editItem, deleteItem)
-				popup := widget.NewPopUpMenu(menu, w.Canvas())
-				popup.ShowAtPosition(pos)
-			}
 		},
 	)
 
@@ -378,12 +245,14 @@ func buildAccessoriesTableWithSelection(w fyne.Window, conn *pgx.Conn, accessori
 	table.OnSelected = func(id widget.TableCellID) {
 		*selectedAccessoryID = accessories[id.Row].AccessoryID
 		fmt.Printf("Selected accessory: %s (ID: %d)\n", accessories[id.Row].Name, *selectedAccessoryID)
+		detailsBtn.Enable()
 		editBtn.Enable()
 		deleteBtn.Enable()
 	}
 
 	table.OnUnselected = func(id widget.TableCellID) {
 		*selectedAccessoryID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 	}
@@ -394,7 +263,6 @@ func buildAccessoriesTableWithSelection(w fyne.Window, conn *pgx.Conn, accessori
 	table.SetColumnWidth(3, 150)
 	table.SetColumnWidth(4, 200)
 	table.SetColumnWidth(5, 100)
-
 	table.ShowHeaderColumn = false
 
 	return table
@@ -475,9 +343,18 @@ func filterAccessories(accessories []Accessory, searchText string) []Accessory {
 // buildJeuxTab creates the complete "Jeux" tab content with search
 func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func()) fyne.CanvasObject {
 	var selectedGameID int = -1
-	allGames := games // Keep original unfiltered data
+	allGames := games
 
 	// Create buttons
+	detailsBtn := widget.NewButton("Détails", func() {
+		if selectedGameID == -1 {
+			return
+		}
+		showGameDetailDialog(w, conn, selectedGameID, func() {
+			showEditGameDialog(w, conn, selectedGameID, refreshFunc)
+		})
+	})
+
 	editBtn := widget.NewButton("Éditer", func() {
 		if selectedGameID == -1 {
 			return
@@ -490,7 +367,6 @@ func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func(
 			return
 		}
 
-		// Find the game name for confirmation dialog
 		var gameName string
 		for _, g := range allGames {
 			if g.GameID == selectedGameID {
@@ -499,7 +375,6 @@ func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func(
 			}
 		}
 
-		// Show confirmation dialog
 		dialog.NewConfirm(
 			"Supprimer le jeu",
 			fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", gameName),
@@ -518,38 +393,34 @@ func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func(
 		).Show()
 	})
 
-	actionButtons := createActionButtons(w, conn, "game", editBtn, deleteBtn, refreshFunc)
+	actionButtons := createActionButtons(w, conn, "game", detailsBtn, editBtn, deleteBtn, refreshFunc)
 
-	// Create container for table (will be updated by search)
 	var tableContainer *fyne.Container
 
-	// Function to rebuild table with filtered data
 	rebuildTable := func(filteredGames []Game) {
-		selectedGameID = -1 // Reset selection when filtering
+		selectedGameID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 
-		table := buildGamesTableWithSelection(w, conn, filteredGames, editBtn, deleteBtn, &selectedGameID, refreshFunc)
+		table := buildGamesTableWithSelection(w, conn, filteredGames, detailsBtn, editBtn, deleteBtn, &selectedGameID, refreshFunc)
 		tableContainer.Objects = []fyne.CanvasObject{table}
 		tableContainer.Refresh()
 	}
 
-	// Create search bar
 	searchBar := createSearchBar("Rechercher un jeu...", func(searchText string) {
 		filtered := filterGames(allGames, searchText)
 		rebuildTable(filtered)
 	})
 
-	// Create toolbar with action buttons and search
 	toolbar := container.NewBorder(
 		nil, nil,
 		actionButtons,
 		nil,
-		searchBar, // Search bar in center gets more space
+		searchBar,
 	)
 
-	// Initial table
-	table := buildGamesTableWithSelection(w, conn, games, editBtn, deleteBtn, &selectedGameID, refreshFunc)
+	table := buildGamesTableWithSelection(w, conn, games, detailsBtn, editBtn, deleteBtn, &selectedGameID, refreshFunc)
 	tableContainer = container.NewStack(table)
 
 	return container.NewBorder(
@@ -562,7 +433,16 @@ func buildJeuxTab(w fyne.Window, conn *pgx.Conn, games []Game, refreshFunc func(
 // buildConsolesTab creates the complete "Consoles" tab content with search
 func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refreshFunc func()) fyne.CanvasObject {
 	var selectedConsoleID int = -1
-	allConsoles := consoles // Keep original unfiltered data
+	allConsoles := consoles
+
+	detailsBtn := widget.NewButton("Détails", func() {
+		if selectedConsoleID == -1 {
+			return
+		}
+		showConsoleDetailDialog(w, conn, selectedConsoleID, func() {
+			showEditConsoleDialog(w, conn, selectedConsoleID, refreshFunc)
+		})
+	})
 
 	editBtn := widget.NewButton("Éditer", func() {
 		if selectedConsoleID == -1 {
@@ -576,7 +456,6 @@ func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refresh
 			return
 		}
 
-		// Find the console name
 		var consoleName string
 		for _, c := range allConsoles {
 			if c.ConsoleID == selectedConsoleID {
@@ -585,7 +464,6 @@ func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refresh
 			}
 		}
 
-		// Show confirmation dialog
 		dialog.NewConfirm(
 			"Supprimer la console",
 			fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", consoleName),
@@ -604,38 +482,34 @@ func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refresh
 		).Show()
 	})
 
-	actionButtons := createActionButtons(w, conn, "console", editBtn, deleteBtn, refreshFunc)
+	actionButtons := createActionButtons(w, conn, "console", detailsBtn, editBtn, deleteBtn, refreshFunc)
 
-	// Create container for table (will be updated by search)
 	var tableContainer *fyne.Container
 
-	// Function to rebuild table with filtered data
 	rebuildTable := func(filteredConsoles []Console) {
-		selectedConsoleID = -1 // Reset selection when filtering
+		selectedConsoleID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 
-		table := buildConsolesTableWithSelection(w, conn, filteredConsoles, editBtn, deleteBtn, &selectedConsoleID, refreshFunc)
+		table := buildConsolesTableWithSelection(w, conn, filteredConsoles, detailsBtn, editBtn, deleteBtn, &selectedConsoleID, refreshFunc)
 		tableContainer.Objects = []fyne.CanvasObject{table}
 		tableContainer.Refresh()
 	}
 
-	// Create search bar
 	searchBar := createSearchBar("Rechercher une console...", func(searchText string) {
 		filtered := filterConsoles(allConsoles, searchText)
 		rebuildTable(filtered)
 	})
 
-	// Create toolbar with action buttons and search
 	toolbar := container.NewBorder(
 		nil, nil,
 		actionButtons,
 		nil,
-		searchBar, // Search bar in center gets more space
+		searchBar,
 	)
 
-	// Initial table
-	table := buildConsolesTableWithSelection(w, conn, consoles, editBtn, deleteBtn, &selectedConsoleID, refreshFunc)
+	table := buildConsolesTableWithSelection(w, conn, consoles, detailsBtn, editBtn, deleteBtn, &selectedConsoleID, refreshFunc)
 	tableContainer = container.NewStack(table)
 
 	return container.NewBorder(
@@ -648,7 +522,16 @@ func buildConsolesTab(w fyne.Window, conn *pgx.Conn, consoles []Console, refresh
 // buildAccessoiresTab creates the complete "Accessoires" tab content with search
 func buildAccessoiresTab(w fyne.Window, conn *pgx.Conn, accessories []Accessory, refreshFunc func()) fyne.CanvasObject {
 	var selectedAccessoryID int = -1
-	allAccessories := accessories // Keep original unfiltered data
+	allAccessories := accessories
+
+	detailsBtn := widget.NewButton("Détails", func() {
+		if selectedAccessoryID == -1 {
+			return
+		}
+		showAccessoryDetailDialog(w, conn, selectedAccessoryID, func() {
+			showEditAccessoryDialog(w, conn, selectedAccessoryID, refreshFunc)
+		})
+	})
 
 	editBtn := widget.NewButton("Éditer", func() {
 		if selectedAccessoryID == -1 {
@@ -662,7 +545,6 @@ func buildAccessoiresTab(w fyne.Window, conn *pgx.Conn, accessories []Accessory,
 			return
 		}
 
-		// Find the accessory name
 		var accessoryName string
 		for _, a := range allAccessories {
 			if a.AccessoryID == selectedAccessoryID {
@@ -671,7 +553,6 @@ func buildAccessoiresTab(w fyne.Window, conn *pgx.Conn, accessories []Accessory,
 			}
 		}
 
-		// Show confirmation dialog
 		dialog.NewConfirm(
 			"Supprimer l'accessoire",
 			fmt.Sprintf("Êtes-vous sûr de vouloir supprimer '%s'? Cette action est irréversible.", accessoryName),
@@ -690,38 +571,34 @@ func buildAccessoiresTab(w fyne.Window, conn *pgx.Conn, accessories []Accessory,
 		).Show()
 	})
 
-	actionButtons := createActionButtons(w, conn, "accessory", editBtn, deleteBtn, refreshFunc)
+	actionButtons := createActionButtons(w, conn, "accessory", detailsBtn, editBtn, deleteBtn, refreshFunc)
 
-	// Create container for table (will be updated by search)
 	var tableContainer *fyne.Container
 
-	// Function to rebuild table with filtered data
 	rebuildTable := func(filteredAccessories []Accessory) {
-		selectedAccessoryID = -1 // Reset selection when filtering
+		selectedAccessoryID = -1
+		detailsBtn.Disable()
 		editBtn.Disable()
 		deleteBtn.Disable()
 
-		table := buildAccessoriesTableWithSelection(w, conn, filteredAccessories, editBtn, deleteBtn, &selectedAccessoryID, refreshFunc)
+		table := buildAccessoriesTableWithSelection(w, conn, filteredAccessories, detailsBtn, editBtn, deleteBtn, &selectedAccessoryID, refreshFunc)
 		tableContainer.Objects = []fyne.CanvasObject{table}
 		tableContainer.Refresh()
 	}
 
-	// Create search bar
 	searchBar := createSearchBar("Rechercher un accessoire...", func(searchText string) {
 		filtered := filterAccessories(allAccessories, searchText)
 		rebuildTable(filtered)
 	})
 
-	// Create toolbar with action buttons and search
 	toolbar := container.NewBorder(
 		nil, nil,
 		actionButtons,
 		nil,
-		searchBar, // Search bar in center gets more space
+		searchBar,
 	)
 
-	// Initial table
-	table := buildAccessoriesTableWithSelection(w, conn, accessories, editBtn, deleteBtn, &selectedAccessoryID, refreshFunc)
+	table := buildAccessoriesTableWithSelection(w, conn, accessories, detailsBtn, editBtn, deleteBtn, &selectedAccessoryID, refreshFunc)
 	tableContainer = container.NewStack(table)
 
 	return container.NewBorder(
